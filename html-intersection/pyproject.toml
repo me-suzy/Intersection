@@ -1,0 +1,53 @@
+[build-system]
+requires = [
+  "setuptools>=68",
+  "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "html-intersection"
+version = "0.2.2"
+description = "Fix canonical links, FLAGS, and cross-references across mirrored HTML directories. Supports any directory structure (ro/en, budget/execution, source/target, etc.)."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+  { name = "Andrei/Andreea Team" }
+]
+keywords = ["html", "seo", "canonical", "flags", "intersection", "sync", "cross-references", "multilingual", "directories", "generic"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing :: Markup :: HTML",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Internet :: WWW/HTTP :: Site Management",
+]
+
+dependencies = []
+
+[project.urls]
+Homepage = "https://pypi.org/project/html-intersection/"
+Repository = "https://github.com/me-suzy/html-intersection"
+Documentation = "https://pypi.org/project/html-intersection/"
+"Bug Reports" = "https://github.com/me-suzy/html-intersection/issues"
+
+[project.scripts]
+html-intersection = "html_intersection.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["html_intersection*"]
+exclude = []
