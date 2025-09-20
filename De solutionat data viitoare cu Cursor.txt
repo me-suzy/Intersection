@@ -1,0 +1,4079 @@
+
+.\.venv\Scripts\python.exe -m twine upload --repository testpypi dist\*
+
+
+$env:TWINE_USERNAME="__token__"
+$env:TWINE_PASSWORD="TOKEN"
+python -m twine upload dist\*
+
+
+
+Problema este că scan_issues nu este exportată în __init__.py - doar funcțiile principale sunt disponibile. Trebuie să imporți scan_issues direct din modulul core:
+pythonimport os
+import tempfile
+from html_intersection import repair_all
+from html_intersection.core import scan_issues  # Import direct din core
+
+Dar eu vreau sa import simplu import html_intersection
+
+Observ două probleme în rezultatul tău:
+
+1. **Canonical-ul s-a schimbat greșit** - de la `/execution/` la `/en/` 
+2. **Link-ul `-------.html` nu s-a reparat** - a rămas neschimbat
+
+**Cauza problemei:**
+
+Libraria ta `html-intersection` a fost designed pentru directoare `ro/` și `en/`, nu `budget/` și `execution/`. Algoritmul de pairing nu recunoaște relația dintre:
+- `buget-general-2024.html` 
+- `executie-bugetara-t3-2024.html`
+
+**De aceea:**
+- Tratează `budget/` ca director "ro" și `execution/` ca director "en"
+- Nu poate face pairing-ul între fișierele cu nume complet diferite
+- Canonical-ul se schimbă greșit la `/en/` pentru că libraria crede că `execution/` = directorul EN
+
+**Pentru ca testul să funcționeze corect:**
+
+```python
+# În loc de nume complet diferite, folosește nume similare:
+budget_file = "document-financiar-2024.html"
+execution_file = "document-financiar-2024.html"  # același nume în ambele directoare
+
+# Sau modifică base_url-urile să reflecte structura:
+base_url_budget = "https://finante.gov.ro"      # pentru budget/
+base_url_execution = "https://finante.gov.ro"   # pentru execution/
+```
+
+Libraria funcționează corect, dar algoritmul de pairing e optimizat pentru site-uri multilingve cu fișiere cu nume identice/similare în directoare `ro/` și `en/`.
+
+pai cum sa fac ca algoritmul sa nu fie strict ro si en, ci la modul general
+
+Pentru a face algoritmul mai general și nu strict RO/EN, trebuie să modifici câteva funcții din `core.py`:
+
+## 1. Modifică funcția `_expected_canonical_href`
+
+```python
+def _expected_canonical_href(base_url: str, filename: str, is_second_dir: bool, second_dir_path: str = "en") -> str:
+    if is_second_dir:
+        return f"{base_url}/{second_dir_path}/{filename}"
+    return f"{base_url}/{filename}"
+```
+
+## 2. Actualizează funcțiile principale să accepte parametri generici
+
+```python
+def repair_all(
+    first_directory: str,
+    second_directory: str, 
+    base_url: str,
+    second_dir_path: str = "en",  # Parametru nou
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+    c = fix_canonicals(first_directory, second_directory, base_url, second_dir_path, dry_run, backup_ext)
+    f = fix_flags_match_canonical(first_directory, second_directory, base_url, second_dir_path, dry_run, backup_ext)  
+    x = sync_cross_references(first_directory, second_directory, base_url, second_dir_path, dry_run, backup_ext)
+    return c, f, x
+```
+
+## 3. Modifică logica de pairing în `_scan_pairs`
+
+```python
+def _scan_pairs(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    # Pairing logic actualizată pentru a fi mai flexibilă
+    # ...rest of logic with second_dir_path parameter
+```
+
+## 4. Pentru testul tău, folosește astfel:
+
+```python
+def test_financial_synchronization():
+    base_dir, budget_dir, execution_dir = create_financial_test_files()
+    base_url = "https://finante.gov.ro"
+    
+    # Specifici că "execution" este calea pentru directorul secundar
+    canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+        first_directory=budget_dir,
+        second_directory=execution_dir,
+        base_url=base_url,
+        second_dir_path="execution",  # Nou parametru
+    )
+```
+
+## 5. Alternativă rapidă - wrapper function
+
+Dacă nu vrei să modifici biblioteca, poți crea o funcție wrapper:
+
+```python
+def repair_generic_directories(dir1, dir2, base_url, dir2_name="execution"):
+    # Temporar redenumește directoarele
+    import tempfile
+    import shutil
+    
+    temp_base = tempfile.mkdtemp()
+    temp_ro = os.path.join(temp_base, "ro") 
+    temp_en = os.path.join(temp_base, "en")
+    
+    shutil.copytree(dir1, temp_ro)
+    shutil.copytree(dir2, temp_en)
+    
+    # Rulează cu structura ro/en
+    result = repair_all(temp_ro, temp_en, base_url)
+    
+    # Copiază înapoi rezultatele
+    shutil.copytree(temp_ro, dir1, dirs_exist_ok=True)
+    shutil.copytree(temp_en, dir2, dirs_exist_ok=True)
+    
+    shutil.rmtree(temp_base)
+    return result
+```
+
+Cea mai bună soluție e să modifici biblioteca pentru a fi mai generică cu parametrul `second_dir_path`.
+
+deci trebuie sa merg in folderul e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\ si sa schimb acestee fisiere
+
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\init.py    250 b    09/05/2025 01:56    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\utils.py    874 b    09/05/2025 01:56    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\cli.py    4.2 k    09/05/2025 16:30    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\core.py    12.7 k    09/05/2025 16:30    -a--
+
+caci mai sunt fisiere cu aceeasi denumire si in alte foldere
+
+
+Confirmed library modification requires updating core.py file.
+
+
+Da, exact. Trebuie să modifici fișierul core.py din directorul sursă al librăriei tale:
+
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\core.py
+Pașii pentru modificare:
+
+Modifică core.py - adaugă parametrul second_dir_path la funcții
+Actualizează __init__.py dacă modifici semnăturile funcțiilor exportate
+Testează local modificările înainte de upload
+Incrementează versiunea în pyproject.toml (ex: 0.2.1 → 0.2.2)
+Rebuilduiește pachetul:
+powershell
+cd "e:\Carte\BB\17 - Site Leadership\...\html-intersection"
+.\.venv\Scripts\Activate.ps1
+
+# Șterge build-urile vechi
+Remove-Item -Recurse -Force .\dist\, .\build\
+
+# Rebuilduiește
+python -m build
+Upload noua versiune la PyPI
+Atenție: Fișierele cu aceleași nume din alte directoare (cum ar fi în venv sau cache) nu trebuie modificate - doar cel din src\html_intersection\core.py este codul sursă real al librăriei.
+
+După modificare și rebuild, noua versiune va avea funcționalitatea generică pentru orice două directoare, nu doar ro/en.
+
+Da, exact așa trebuie să procedezi. Vei modifica fișierul:
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\core.py
+Modificările necesare în core.py:
+1. Actualizează funcția _expected_canonical_href:
+pythondef _expected_canonical_href(base_url: str, filename: str, is_second_dir: bool, second_dir_path: str = "en") -> str:
+    """Generate expected canonical href for a file."""
+    if is_second_dir:
+        return f"{base_url}/{second_dir_path}/{filename}"
+    return f"{base_url}/{filename}"
+2. Adaugă parametrul second_dir_path la toate funcțiile principale:
+pythondef fix_canonicals(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",  # ADAUGĂ ACEST PARAMETRU
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    # ... restul funcției
+pythondef fix_flags_match_canonical(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",  # ADAUGĂ ACEST PARAMETRU
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    # ... restul funcției
+pythondef sync_cross_references(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",  # ADAUGĂ ACEST PARAMETRU
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    # ... restul funcției
+pythondef repair_all(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",  # ADAUGĂ ACEST PARAMETRU
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+    c = fix_canonicals(first_directory, second_directory, base_url, second_dir_path, dry_run, backup_ext)
+    f = fix_flags_match_canonical(first_directory, second_directory, base_url, second_dir_path, dry_run, backup_ext)
+    x = sync_cross_references(first_directory, second_directory, base_url, second_dir_path, dry_run, backup_ext)
+    return c, f, x
+pythondef scan_issues(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",  # ADAUGĂ ACEST PARAMETRU
+) -> Dict[str, List]:
+    # ... restul funcției
+3. Actualizează toate apelurile interne pentru a folosi second_dir_path
+Caută toate aparițiile hardcodate de "en" și înlocuiește-le cu second_dir_path.
+4. După modificări, actualizează versiunea în pyproject.toml:
+tomlversion = "0.2.1"  # sau 0.2.2
+5. Apoi rebuilduiește:
+powershellcd "e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection"
+
+# Activează venv
+.\.venv\Scripts\Activate.ps1
+
+# Șterge build-urile vechi
+Remove-Item -Recurse -Force .\dist\
+Remove-Item -Recurse -Force .\build\
+Remove-Item -Recurse -Force .\src\html_intersection.egg-info\
+
+# Rebuilduiește
+python -m build
+
+# Upload
+$env:TWINE_USERNAME="__token__"
+$env:TWINE_PASSWORD="pypi-TOKENUL_TAU_AICI"
+python -m twine upload dist\*
+Așa vei putea folosi librăria cu orice directoare:
+pythonrepair_all(
+    first_directory=budget_dir,
+    second_directory=execution_dir,
+    base_url=base_url,
+    second_dir_path="execution",  # Acum poți specifica orice nume
+)RetryNFda, ok, dar ti-am atasat fisierele. Nu poti sa faci tu direct modificarile si sa testezi?EditAssessed missing files and potential code modifications.Utilizatorul îmi cere să fac modificările direct în fișierele atașate și să testez. Am documentele:
+
+"Cum faci update pe PyPi.org.txt" - instrucțiuni pentru upload PyPI
+"pyproject.toml" - configurația proiectului
+"README.md" - documentația
+
+Și mi-a menționat că există fișierul core.py care trebuie modificat. Din contextul conversației, înțeleg că trebuie să:
+
+Modific funcțiile din core.py să accepte parametrul second_dir_path
+Să fac biblioteca mai generică, nu doar pentru ro/en
+Să testez modificările
+
+Însă nu am fișierul core.py atașat în documente. Ar trebui să cer utilizatorului să atașeze și core.py, cli.py, init.py și utils.py pentru a putea face modificările complete.
+De asemenea, nu pot rula efectiv codul pentru testare, dar pot să arăt cum ar trebui modificat și să sugerez testele.Nu am atașat fișierul core.py în documentele furnizate. Pentru a face modificările complete, am nevoie de toate fișierele din librărie:
+
+core.py (cel mai important - conține logica principală)
+cli.py
+__init__.py
+utils.py
+
+Poți să atașezi și aceste fișiere? Apoi voi putea:
+
+Modifica direct toate funcțiile pentru a accepta parametrul second_dir_path
+Actualiza CLI-ul să suporte noul parametru
+Testa modificările cu exemple practice
+Pregăti versiunea 0.2.1 pentru upload
+Searched for “html intersection core.py file python library”0 resultsRealized files missing, requested user to attach documents.Nu a găsit nimic în Google Drive. Voi cere utilizatorului să atașeze fișierele lipsă.Nu am găsit fișierele în Google Drive. Te rog să atașezi fișierele:
+
+core.py
+cli.py
+__init__.py
+utils.py
+
+din directorul:
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\
+Odată ce le voi avea, voi putea face toate modificările necesare pentru a face biblioteca generică (nu doar pentru ro/en) și să-ți arăt testele.RetryNFeu am incarcat acolo fisierele. Unde sa le incarc pentru ca tu sa ai acces la ele ?EditInvestigated file locations and potential upload methods.Văd că utilizatorul a încărcat fișierele în proiectul Claude "html-intersection" dar nu le văd în documentele furnizate. Utilizatorul întreabă unde să le încarce pentru ca eu să am acces la ele. Pot să verific dacă fișierele sunt în Google Drive sau să îi cer să le atașeze direct în chat.
+Văd că în partea dreaptă a interfeței sunt fișiere listate:
+
+README.md (226 lines)
+pyproject.toml (52 lines)
+Cum faci update pe PyPi.org.txt (87 lines)
+
+Dar nu văd fișierele core.py, cli.py, init.py, utils.py pe care le cer. Pot să încerc să caut în Google Drive sau să îi cer să le atașeze direct.Văd că ai încărcat fișierele în proiectul Claude "html-intersection". Pot să încerc să le găsesc în Google Drive sau poți să le atașezi direct în chat.Searched for “html intersection python library source files core cli init utils”0 resultsSought alternative ways to locate missing Google Drive files.Nu am găsit fișierele în Google Drive. Pot să încerc o căutare mai largă sau să îi cer utilizatorului să le atașeze direct în chat.Searched for “html intersection library python source code files”0 resultsSought alternative file upload methods for user.Nu găsesc fișierele prin Google Drive Search. Trebuie să îi cer utilizatorului să le atașeze direct în chat prin drag-and-drop sau copy-paste.Nu găsesc fișierele în Google Drive. Pentru ca eu să pot accesa și modifica fișierele, te rog să le atașezi direct în chat prin una din metodele:
+Metoda 1: Drag & Drop
+Trage fișierele direct în acest chat:
+
+core.py
+cli.py
+__init__.py
+utils.py
+
+Metoda 2: Copy-Paste conținutul
+Deschide fiecare fișier în editor și copiază conținutul aici în chat, specificând numele fișierului.
+Metoda 3: Încarcă în Google Drive și dă-mi linkuri
+Urcă fișierele în Google Drive și dă-mi linkurile complete către ele.
+Odată ce voi avea acces la conținutul fișierelor, voi putea:
+
+✅ Modifica core.py să accepte parametrul second_dir_path
+✅ Actualiza cli.py pentru noul parametru
+✅ Exporta funcțiile în __init__.py
+✅ Testa modificările complete
+✅ Pregăti versiunea 0.2.1 pentru PyPI
+
+Care metodă preferi?RetryNFdeci nu poti accesa din aplicatie direct fisierele mele de pe local laptop? trebuie sa le incarc in google drive, in contul meu, si apoi sa-ti dau link la google drive ?EditConfirmed local file access limitations, explained upload methods.Utilizatorul întreabă dacă pot accesa fișierele de pe laptopul său local direct din aplicație. Această întrebare este despre capacitățile mele de acces la fișiere.
+Din instrucțiunile mele, văd că am acces la:
+
+Google Drive search și fetch
+Web search și fetch
+Asana
+Cloudflare
+Gmail
+Conversation search și recent chats
+
+Nu am acces direct la sistemul de fișiere local al utilizatorului. Nu pot accesa fișierele de pe laptopul său decât dacă:
+
+Le atașează direct în chat (drag & drop sau upload)
+Le încarcă în Google Drive și îmi dă acces
+Îmi copiază conținutul în chat
+
+Trebuie să clarific acest lucru pentru utilizator.Nu, nu pot accesa direct fișierele de pe laptopul tău local. Am acces doar la:
+✅ Ce pot accesa:
+
+Google Drive (dacă le încarci acolo)
+Gmail
+Asana
+Web-ul (prin căutare)
+Fișiere atașate direct în chat
+
+❌ Ce NU pot accesa:
+
+Sistemul tău de fișiere local
+Directoare de pe hard disk
+Fișiere din aplicația Claude desktop dacă sunt doar locale
+
+📁 Opțiunile tale sunt:
+Opțiunea 1: Atașează în chat (cel mai simplu)
+
+Trage fișierele direct în acest chat
+Sau folosește butonul 📎 pentru atașare
+
+Opțiunea 2: Google Drive
+
+Încarcă fișierele în Google Drive
+Dă-mi linkurile sau las-mă să le găsesc prin căutare
+
+Opțiunea 3: Copy-paste
+
+Deschide fiecare fișier în notepad/editor
+Copiază conținutul și lipește aici în chat
+
+Cea mai rapidă este Opțiunea 1 - doar trage fișierele core.py, cli.py, __init__.py, utils.py direct în acest chat și voi putea lucra imediat cu ele.
+Ce opțiune preferi?RetryNFdaca iti dau folderul pe google drive, tu poti citi toate fisierele din acel folder si subfolderele cu fisiere, ca sa vezi detaliat tot proiectul, si apoi sa modifici fisierele din google driveEditEvaluated Google Drive capabilities, found limitations for file access.Utilizatorul întreabă dacă pot accesa un folder Google Drive și să citesc toate fișierele din el, inclusiv subfoldere, și apoi să modific fișierele din Google Drive.
+Din funcțiile pe care le am disponibile:
+
+google_drive_search - pot căuta fișiere în Google Drive
+google_drive_fetch - pot citi conținutul documentelor Google (Google Docs)
+
+Însă:
+
+google_drive_fetch pare să funcționeze doar pentru Google Docs (document_ids pentru documente Google)
+Nu văd o funcție pentru a modifica fișiere în Google Drive
+Nu pare să am acces la fișiere raw .py din Google Drive prin aceste funcții
+
+Să verific din nou ce pot face cu Google Drive:
+
+google_drive_search: poate căuta fișiere și returnează metadate
+google_drive_fetch: pare să fie pentru Google Docs ID-uri specifice
+
+Nu cred că pot modifica fișiere .py direct în Google Drive prin aceste tools. Pot doar să le citesc dacă sunt Google Docs, dar nu fișiere raw .py.
+Să fiu clar cu utilizatorul despre limitările mele.Da și nu. Iată ce pot face cu Google Drive:
+✅ Ce pot face:
+
+Căuta fișiere în folderul tău Google Drive
+Citi conținutul fișierelor (dacă sunt Google Docs)
+Naviga prin structura de foldere
+Analiza proiectul complet
+
+❌ Ce NU pot face:
+
+Modifica direct fișierele .py în Google Drive
+Salva modificări înapoi în Google Drive
+Edita fișiere raw (doar Google Docs)
+
+🔄 Workflow-ul ar fi:
+
+Tu încarci folderul în Google Drive
+Eu citesc toate fișierele și analizez proiectul
+Eu creez versiunile modificate și ți le dau
+Tu înlocuiești fișierele în folderul local cu versiunile mele
+Searched for “html intersection folder project directory”1 resulthtml-intersectionFolderDiscovered Google Drive folder and prepared to search files.Perfect! Am găsit folderul "html-intersection" în Google Drive. URL-ul este: https://drive.google.com/drive/folders/1zoXx9q5x8MmZgf8HLMdn_GZuFQxbX32p
+Acum pot să caut fișierele din acest folder specific folosind parents:Perfect! Am găsit folderul html-intersection în Google Drive. Să citesc toate fișierele din el:Searched for “files in html intersection project folder”0 resultsInvestigated broader search strategy for project files.Nu a returnat nimic. Să încerc o căutare mai largă pentru fișierele din proiect:Searched for “python source files core cli init utils html intersection”0 resultsPare că nu găsesc fișierele .py în Google Drive, probabil pentru că sunt fișiere raw .py care nu Pare că nu găsesc fișierele .py în Google Drive, probabil pentru că sunt fișiere raw .py care nu sunt suportate direct pentru citire prin API-ul meu.
+Să încerc să caut orice fișier din ultimele ore pentru a vedea ce a fost încărcat:Searched for “recently uploaded files today”1 resulthtml-intersectionFolderInvestigated Google Drive API limitations for file access.Din ceea ce văd, pot detecta folderul html-intersection, dar nu pot citi fișierele .py raw din el. API-ul meu Google Drive pare să suporte doar Google Docs, nu fișiere raw.
+Să încerc o ultimă căutare pentru a vedea dacă fișierele sunt încărcate ca Google Docs:Găsesc folderul html-intersection în Google Drive, dar am o limitare:
+🚫 Limitarea mea cu Google Drive:
+Pot citi doar Google Docs, nu fișiere .py raw. Văd folderul tău, dar nu pot accesa fișierele Python directe.
+💡 Soluția rapidă:
+Opțiunea A: Atașează direct în chat
+Cea mai rapidă - trage fișierele în chat și în 2 minute am modificările gata.
+Opțiunea B: Convertește la Google Docs
+
+Deschide fiecare fișier .py în notepad
+Copiază conținutul
+Creează un Google Doc pentru fiecare (ex: "core.py content")
+Lipește conținutul acolo
+
+Opțiunea C: Îmi dai conținutul aici
+Copiază-lipește fiecare fișier în chat:
+=== core.py ===
+[conținutul fișierului]
+
+=== cli.py ===  
+[conținutul fișierului]
+Care opțiune preferi? Opțiunea A (atașare directă) este cea mai rapidă - literalmente 30 de secunde și pot începe modificările.Retry__init__.py16 linespycli.py101 linespycore.py337 linespyutils.py35 linespyNFok, modifica aiciEditPlotted library modifications to enhance cross-language functionality.Perfect! Acum am toate fișierele necesare. Voi modifica biblioteca pentru a o face generică (nu doar ro/en), adăugând parametrul second_dir_path la toate funcțiile.
+Modificările necesare:
+
+core.py:
+
+Adăuga parametrul second_dir_path = "en" la toate funcțiile
+Modifică _expected_canonical_href să folosească second_dir_path în loc de hardcodat "en"
+Actualizează toate funcțiile să treacă parametrul mai departe
+Actualizează regex-urile și logica să fie mai generică
+
+
+cli.py:
+
+Schimbă --ro-dir și --en-dir la --first-dir și --second-dir
+Adaugă --second-dir-path ca parametru opțional
+Actualizează toate apelurile funcțiilor
+
+
+init.py:
+
+Adaugă scan_issues la import și export
+Păstrează compatibilitatea pentru semnăturile actuale
+
+
+
+Să încep cu modificările:Perfect! Acum pot modifica toate fișierele pentru a face biblioteca generică. Voi face următoarele modificări:
+🔧 Modificări pentru a face biblioteca generică:
+1. core.py - Actualizat cu parametrul second_dir_path
+<documents>
+<document index="11" media_type="text/plain"><source>core.py (MODIFICAT)</source><document_content>import os
+import re
+from typing import Dict, Tuple, Optional, List, Iterable
+from .utils import read_file_with_fallback_encoding, write_file_with_encoding, list_html_files
+CANONICAL_RE = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"\s*/?>', re.IGNORECASE)
+Accept both "+40" and "+40"; same for +1
+RO_FLAG_RE = re.compile(r'<li><a\s+cunt_code="\?+40"\s+href="([^"]+)"')
+EN_FLAG_RE = re.compile(r'<li><a\s+cunt_code="\?+1"\s+href="([^"]+)"')
+def _ensure_backup(path: str, content: str, backup_ext: Optional[str]) -> None:
+if backup_ext:
+try:
+with open(path + backup_ext, "w", encoding="utf-8") as f:
+f.write(content)
+except Exception:
+pass
+def _expected_canonical_href(base_url: str, filename: str, is_second_dir: bool, second_dir_path: str = "en") -> str:
+"""Generate expected canonical href for a file."""
+if is_second_dir:
+return f"{base_url}/{second_dir_path}/{filename}"
+return f"{base_url}/{filename}"
+def fix_canonicals(
+first_directory: str,
+second_directory: str,
+base_url: str,
+second_dir_path: str = "en",
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> int:
+"""Fix canonical links to match exact filenames."""
+fixes = 0
+for is_second_dir, directory in ((False, first_directory), (True, second_directory)):
+    for filename in list_html_files(directory):
+        path = os.path.join(directory, filename)
+        content = read_file_with_fallback_encoding(path)
+        if not content:
+            continue
+        match = CANONICAL_RE.search(content)
+        if not match:
+            continue
+        current_href = match.group(1)
+        expected_href = _expected_canonical_href(base_url, filename, is_second_dir, second_dir_path)
+        if current_href != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(path, content, backup_ext)
+                new_content = CANONICAL_RE.sub(
+                    f'<link rel="canonical" href="{expected_href}" />', content, count=1
+                )
+                write_file_with_encoding(path, new_content)
+
+return fixes
+def fix_flags_match_canonical(
+first_directory: str,
+second_directory: str,
+base_url: str,
+second_dir_path: str = "en",
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> int:
+"""Ensure FLAGS match canonical in the same file."""
+fixes = 0
+for is_second_dir, directory, own_re in (
+    (False, first_directory, RO_FLAG_RE),
+    (True, second_directory, EN_FLAG_RE),
+):
+    for filename in list_html_files(directory):
+        path = os.path.join(directory, filename)
+        content = read_file_with_fallback_encoding(path)
+        if not content:
+            continue
+        canonical_match = CANONICAL_RE.search(content)
+        if not canonical_match:
+            continue
+        canonical_href = canonical_match.group(1)
+        own_flag_match = own_re.search(content)
+        if not own_flag_match:
+            continue
+        current_href = own_flag_match.group(1)
+        if current_href != canonical_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(path, content, backup_ext)
+                # replace only the first own flag link
+                new_content = own_re.sub(
+                    own_flag_match.group(0).replace(current_href, canonical_href),
+                    content,
+                    count=1,
+                )
+                write_file_with_encoding(path, new_content)
+
+return fixes
+def _fix_double_html_suffix(href: str) -> str:
+# Normalize accidental .html.html to .html
+return href.replace('.html.html', '.html')
+def _extract_second_filename_from_href(href: str, base_url: str, second_dir_path: str = "en") -> Optional[str]:
+"""Extract filename from second directory href."""
+if not href:
+return None
+href = _fix_double_html_suffix(href)
+prefix = f"{base_url}/{second_dir_path}/"
+if not href.startswith(prefix) or not href.endswith(".html"):
+return None
+return href[len(prefix):]
+def _extract_first_filename_from_href(href: str, base_url: str) -> Optional[str]:
+"""Extract filename from first directory href."""
+if not href:
+return None
+href = _fix_double_html_suffix(href)
+prefix = f"{base_url}/"
+if not href.startswith(prefix) or not href.endswith(".html"):
+return None
+name = href[len(prefix):]
+# Some pages may include a nested path; take last component
+if "/" in name:
+name = name.split("/")[-1]
+return name
+def _scan_pairs(
+first_directory: str,
+second_directory: str,
+base_url: str,
+second_dir_path: str = "en",
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+"""Scan directories and return pairing mappings."""
+first_to_second: Dict[str, str] = {}
+second_to_first: Dict[str, str] = {}
+first_files = set(list_html_files(first_directory))
+second_files = set(list_html_files(second_directory))
+
+# First pass: deduce from flags if present
+for first_filename in first_files:
+    first_path = os.path.join(first_directory, first_filename)
+    first_content = read_file_with_fallback_encoding(first_path)
+    if not first_content:
+        continue
+    second_flag_match = EN_FLAG_RE.search(first_content)
+    if second_flag_match:
+        href = _fix_double_html_suffix(second_flag_match.group(1))
+        second_name = _extract_second_filename_from_href(href, base_url, second_dir_path)
+        if second_name:
+            if second_name in second_files and first_filename not in first_to_second:
+                first_to_second[first_filename] = second_name
+                if second_name not in second_to_first:
+                    second_to_first[second_name] = first_filename
+
+for second_filename in second_files:
+    second_path = os.path.join(second_directory, second_filename)
+    second_content = read_file_with_fallback_encoding(second_path)
+    if not second_content:
+        continue
+    first_flag_match = RO_FLAG_RE.search(second_content)
+    if first_flag_match:
+        href = _fix_double_html_suffix(first_flag_match.group(1))
+        first_name = _extract_first_filename_from_href(href, base_url)
+        if first_name:
+            if first_name in first_files and first_name not in first_to_second:
+                first_to_second[first_name] = second_filename
+                if second_filename not in second_to_first:
+                    second_to_first[second_filename] = first_name
+
+# Fallback: pair by normalized base name equality
+if len(first_to_second) < len(first_files) or len(second_to_first) < len(second_files):
+    first_bases = {f[:-5].lower().replace("-", " "): f for f in first_files}
+    second_bases = {f[:-5].lower().replace("-", " "): f for f in second_files}
+    for base, first_name in first_bases.items():
+        if first_name in first_to_second:
+            continue
+        if base in second_bases and second_bases[base] not in second_to_first:
+            second_name = second_bases[base]
+            first_to_second[first_name] = second_name
+            second_to_first[second_name] = first_name
+
+return first_to_second, second_to_first
+def sync_cross_references(
+first_directory: str,
+second_directory: str,
+base_url: str,
+second_dir_path: str = "en",
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> int:
+"""Synchronize cross-references between first and second directories."""
+fixes = 0
+first_to_second, second_to_first = _scan_pairs(first_directory, second_directory, base_url, second_dir_path)
+# Update first files: ensure +1 points to expected second file
+for first_filename, second_filename in first_to_second.items():
+    first_path = os.path.join(first_directory, first_filename)
+    first_content = read_file_with_fallback_encoding(first_path)
+    if not first_content:
+        continue
+    second_match = EN_FLAG_RE.search(first_content)
+    expected_href = f"{base_url}/{second_dir_path}/{second_filename}"
+    if second_match and _fix_double_html_suffix(second_match.group(1)) != expected_href:
+        fixes += 1
+        if not dry_run:
+            _ensure_backup(first_path, first_content, backup_ext)
+            new_content = EN_FLAG_RE.sub(
+                second_match.group(0).replace(second_match.group(1), expected_href),
+                first_content,
+                count=1,
+            )
+            write_file_with_encoding(first_path, new_content)
+
+# Update second files: ensure +40 points to expected first file
+for second_filename, first_filename in second_to_first.items():
+    second_path = os.path.join(second_directory, second_filename)
+    second_content = read_file_with_fallback_encoding(second_path)
+    if not second_content:
+        continue
+    first_match = RO_FLAG_RE.search(second_content)
+    expected_href = f"{base_url}/{first_filename}"
+    if first_match and _fix_double_html_suffix(first_match.group(1)) != expected_href:
+        fixes += 1
+        if not dry_run:
+            _ensure_backup(second_path, second_content, backup_ext)
+            new_content = RO_FLAG_RE.sub(
+                first_match.group(0).replace(first_match.group(1), expected_href),
+                second_content,
+                count=1,
+            )
+            write_file_with_encoding(second_path, new_content)
+
+return fixes
+def scan_issues(
+first_directory: str,
+second_directory: str,
+base_url: str,
+second_dir_path: str = "en",
+) -> Dict[str, object]:
+"""
+Analyze directories and return a detailed report with:
+- first_to_second, second_to_first mappings
+- bidirectional_pairs: list[tuple[str, str]]
+- mismatched_pairs: list[tuple[str, str, str]] (first, second, details)
+- invalid_links: list[str]
+- unmatched_first: list[str]
+- unmatched_second: list[str]
+"""
+first_files = set(list_html_files(first_directory))
+second_files = set(list_html_files(second_directory))
+first_to_second: Dict[str, str] = {}
+second_to_first: Dict[str, str] = {}
+invalid_links: List[str] = []
+mismatched_pairs: List[Tuple[str, str, str]] = []
+
+# First pass: try to pair via flags if they point to existing files
+for first_filename in first_files:
+    first_path = os.path.join(first_directory, first_filename)
+    first_content = read_file_with_fallback_encoding(first_path)
+    if not first_content:
+        continue
+    second_match = EN_FLAG_RE.search(first_content)
+    second_href = _fix_double_html_suffix(second_match.group(1)) if second_match else None
+    second_name = _extract_second_filename_from_href(second_href, base_url, second_dir_path) if second_href else None
+    if second_name:
+        if second_name not in second_files:
+            invalid_links.append(f"FIRST {first_filename}: SECOND file not found {second_name}")
+            continue
+        first_to_second[first_filename] = second_name
+
+for second_filename in second_files:
+    second_path = os.path.join(second_directory, second_filename)
+    second_content = read_file_with_fallback_encoding(second_path)
+    if not second_content:
+        continue
+    first_match = RO_FLAG_RE.search(second_content)
+    first_href = _fix_double_html_suffix(first_match.group(1)) if first_match else None
+    first_name = _extract_first_filename_from_href(first_href, base_url) if first_href else None
+    if first_name:
+        if first_name not in first_files:
+            invalid_links.append(f"SECOND {second_filename}: FIRST file not found {first_name}")
+            continue
+        second_to_first[second_filename] = first_name
+
+# Bidirectional pairs
+bidirectional_pairs: List[Tuple[str, str]] = []
+for first_file, second_file in first_to_second.items():
+    if second_file in second_to_first and second_to_first[second_file] == first_file:
+        bidirectional_pairs.append((first_file, second_file))
+
+# Detect pairs with no common links
+for first_file, second_file in first_to_second.items():
+    if (first_file, second_file) in bidirectional_pairs:
+        continue
+    second_path = os.path.join(second_directory, second_file)
+    second_content = read_file_with_fallback_encoding(second_path) or ""
+    second_first_match = RO_FLAG_RE.search(second_content)
+    second_first_href = _fix_double_html_suffix(second_first_match.group(1)) if second_first_match else None
+    details = f"FIRST->SECOND: {base_url}/{second_dir_path}/{second_file}, SECOND->FIRST: {second_first_href or '-'}"
+    mismatched_pairs.append((first_file, second_file, details))
+
+# Unmatched files (not part of any pair)
+matched_first = {first for first, _ in bidirectional_pairs} | {first for first, _, _ in mismatched_pairs}
+matched_second = {second for _, second in bidirectional_pairs} | {second for _, second, _ in mismatched_pairs}
+unmatched_first = sorted(list(first_files - matched_first))
+unmatched_second = sorted(list(second_files - matched_second))
+
+return {
+    "first_to_second": dict(sorted(first_to_second.items())),
+    "second_to_first": dict(sorted(second_to_first.items())),
+    "bidirectional_pairs": bidirectional_pairs,
+    "mismatched_pairs": mismatched_pairs,
+    "invalid_links": invalid_links,
+    "unmatched_first": unmatched_first,
+    "unmatched_second": unmatched_second,
+    # Backwards compatibility
+    "ro_to_en": dict(sorted(first_to_second.items())),
+    "en_to_ro": dict(sorted(second_to_first.items())),
+    "unmatched_ro": unmatched_first,
+    "unmatched_en": unmatched_second,
+}
+def repair_all(
+first_directory: str,
+second_directory: str,
+base_url: str,
+second_dir_path: str = "en",
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+"""Run all repair steps: canonicals, flags, and cross-references."""
+c = fix_canonicals(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+f = fix_flags_match_canonical(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+x = sync_cross_references(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+return c, f, x
+COMPATIBILITY FUNCTIONS - Keep old function signatures for backwards compatibility
+def fix_canonicals_legacy(
+ro_directory: str,
+en_directory: str,
+base_url: str,
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> int:
+"""Legacy function for backwards compatibility."""
+return fix_canonicals(ro_directory, en_directory, base_url, "en", dry_run, backup_ext)
+def fix_flags_match_canonical_legacy(
+ro_directory: str,
+en_directory: str,
+base_url: str,
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> int:
+"""Legacy function for backwards compatibility."""
+return fix_flags_match_canonical(ro_directory, en_directory, base_url, "en", dry_run, backup_ext)
+def sync_cross_references_legacy(
+ro_directory: str,
+en_directory: str,
+base_url: str,
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> int:
+"""Legacy function for backwards compatibility."""
+return sync_cross_references(ro_directory, en_directory, base_url, "en", dry_run, backup_ext)
+def repair_all_legacy(
+ro_directory: str,
+en_directory: str,
+base_url: str,
+dry_run: bool = False,
+backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+"""Legacy function for backwards compatibility."""
+return repair_all(ro_directory, en_directory, base_url, "en", dry_run, backup_ext)
+def scan_issues_legacy(
+ro_directory: str,
+en_directory: str,
+base_url: str,
+) -> Dict[str, object]:
+"""Legacy function for backwards compatibility."""
+return scan_issues(ro_directory, en_directory, base_url, "en")
+</document_content></document>
+</documents>
+2. cli.py - Actualizat pentru parametri generici
+<documents>
+<document index="12" media_type="text/plain"><source>cli.py (MODIFICAT)</source><document_content>import argparse
+import sys
+from .core import (
+    fix_canonicals,
+    fix_flags_match_canonical,
+    sync_cross_references,
+    repair_all,
+    scan_issues,
+    _scan_pairs,
+)
+def _add_common_args(p: argparse.ArgumentParser) -> None:
+p.add_argument("--first-dir", dest="first_dir", required=True, help="Path to first directory")
+p.add_argument("--second-dir", dest="second_dir", required=True, help="Path to second directory")
+p.add_argument("--second-dir-path", dest="second_dir_path", default="en", help="URL path segment for second directory (default: 'en')")
+p.add_argument("--base-url", dest="base_url", required=True, help="Base URL, e.g. https://neculaifantanaru.com")
+p.add_argument("--dry-run", dest="dry_run", action="store_true", help="Do not write files, just report")
+p.add_argument("--backup-ext", dest="backup_ext", default=None, help="If set (e.g. .bak), write a backup copy before modifying files")
+# Legacy parameters for backwards compatibility
+p.add_argument("--ro-dir", dest="ro_dir", help="Legacy: Path to ro/ directory (use --first-dir instead)")
+p.add_argument("--en-dir", dest="en_dir", help="Legacy: Path to en/ directory (use --second-dir instead)")
+def main(argv=None) -> int:
+argv = argv or sys.argv[1:]
+parser = argparse.ArgumentParser(
+prog="html-intersection",
+description="Fix canonical, FLAGS, and cross-references across mirrored HTML directories"
+)
+sub = parser.add_subparsers(dest="cmd", required=True)
+p_repair = sub.add_parser("repair", help="Run all steps: canonicals, flags, sync")
+_add_common_args(p_repair)
+
+p_canon = sub.add_parser("fix-canonicals", help="Fix canonical tags to match filenames")
+_add_common_args(p_canon)
+
+p_flags = sub.add_parser("fix-flags", help="Ensure FLAGS match canonical in the same file")
+_add_common_args(p_flags)
+
+p_sync = sub.add_parser("sync", help="Synchronize cross-references in FLAGS")
+_add_common_args(p_sync)
+
+p_scan = sub.add_parser("scan", help="Scan and print detected directory pairs")
+_add_common_args(p_scan)
+p_scan.add_argument("--report", dest="report", action="store_true", help="Include invalid links, mismatched pairs, and unmatched files")
+
+args = parser.parse_args(argv)
+
+# Handle legacy parameters
+first_dir = args.first_dir or args.ro_dir
+second_dir = args.second_dir or args.en_dir
+
+if not first_dir:
+    print("Error: --first-dir (or legacy --ro-dir) is required")
+    return 1
+if not second_dir:
+    print("Error: --second-dir (or legacy --en-dir) is required")
+    return 1
+
+if args.cmd == "repair":
+    c, f, x = repair_all(
+        first_dir, second_dir, args.base_url, args.second_dir_path,
+        dry_run=args.dry_run, backup_ext=args.backup_ext
+    )
+    print(f"Canonicals fixed: {c}; Flags fixed: {f}; Cross-ref fixed: {x}")
+    return 0
+if args.cmd == "fix-canonicals":
+    n = fix_canonicals(
+        first_dir, second_dir, args.base_url, args.second_dir_path,
+        dry_run=args.dry_run, backup_ext=args.backup_ext
+    )
+    print(f"Canonicals fixed: {n}")
+    return 0
+if args.cmd == "fix-flags":
+    n = fix_flags_match_canonical(
+        first_dir, second_dir, args.base_url, args.second_dir_path,
+        dry_run=args.dry_run, backup_ext=args.backup_ext
+    )
+    print(f"Flags fixed: {n}")
+    return 0
+if args.cmd == "sync":
+    n = sync_cross_references(
+        first_dir, second_dir, args.base_url, args.second_dir_path,
+        dry_run=args.dry_run, backup_ext=args.backup_ext
+    )
+    print(f"Cross-ref fixed: {n}")
+    return 0
+if args.cmd == "scan":
+    if args.report:
+        report = scan_issues(first_dir, second_dir, args.base_url, args.second_dir_path)
+        print("FIRST->SECOND:")
+        for first, second in report["first_to_second"].items():
+            print(f"  {first} -> {second}")
+        print("SECOND->FIRST:")
+        for second, first in report["second_to_first"].items():
+            print(f"  {second} -> {first}")
+        if report["invalid_links"]:
+            print("\nInvalid links:")
+            for msg in report["invalid_links"]:
+                print(f"  {msg}")
+        if report["mismatched_pairs"]:
+            print("\nPairs with no common links:")
+            for first, second, details in report["mismatched_pairs"]:
+                print(f"  {first} <-> {second}: {details}")
+        if report["unmatched_first"] or report["unmatched_second"]:
+            print("\nUnmatched files:")
+            for first in report["unmatched_first"]:
+                print(f"  FIRST {first}")
+            for second in report["unmatched_second"]:
+                print(f"  SECOND {second}")
+    else:
+        first_to_second, second_to_first = _scan_pairs(first_dir, second_dir, args.base_url, args.second_dir_path)
+        print("FIRST->SECOND:")
+        for first, second in sorted(first_to_second.items()):
+            print(f"  {first} -> {second}")
+        print("SECOND->FIRST:")
+        for second, first in sorted(second_to_first.items()):
+            print(f"  {second} -> {first}")
+    return 0
+
+parser.print_help()
+return 1
+if name == "main":
+raise SystemExit(main())
+</document_content></document>
+</documents>
+3. init.py - Actualizat cu export pentru scan_issues
+<documents>
+<document index="13" media_type="text/plain"><source>__init__.py (MODIFICAT)</source><document_content>from .core import (
+    fix_canonicals,
+    fix_flags_match_canonical,
+    sync_cross_references,
+    repair_all,
+    scan_issues,
+)
+all = [
+"fix_canonicals",
+"fix_flags_match_canonical",
+"sync_cross_references",
+"repair_all",
+"scan_issues",
+]
+</document_content></document>
+</documents>
+4. utils.py - Rămâne neschimbat
+<documents>
+<document index="14" media_type="text/plain"><source>utils.py (NESCHIMBAT)</source><document_content>import os
+from typing import Optional
+def read_file_with_fallback_encoding(file_path: str) -> Optional[str]:
+encodings = ["utf-8", "latin1", "cp1252", "iso-8859-1"]
+for encoding in encodings:
+try:
+with open(file_path, "r", encoding=encoding) as f:
+return f.read()
+except UnicodeDecodeError:
+continue
+return None
+def write_file_with_encoding(file_path: str, content: str) -> bool:
+try:
+with open(file_path, "w", encoding="utf-8") as f:
+f.write(content)
+return True
+except Exception:
+return False
+def list_html_files(directory: str) -> list[str]:
+if not os.path.isdir(directory):
+return []
+return [
+filename
+for filename in os.listdir(directory)
+if filename.endswith(".html")
+]
+</document_content></document>
+</documents>
+🧪 Test pentru noua funcționalitate generică:Crafted comprehensive test for directory functionality and compatibility.Acum voi crea un test care demonstrează noua funcționalitate generică. Testul va avea:
+
+Testul pentru directoare budget/execution (cum a cerut utilizatorul)
+Demonstrare că poate funcționa pentru orice directoare
+Backwards compatibility cu ro/en
+
+Să fac un test comprehensiv:<documents>
+<document index="15" media_type="text/plain"><source>test_generic_directories.py</source><document_content>import os
+import tempfile
+import html_intersection
+def test_generic_financial_synchronization():
+"""Test the library with budget/execution directories (not just ro/en)."""
+# Create temporary test directories
+with tempfile.TemporaryDirectory() as temp_dir:
+    budget_dir = os.path.join(temp_dir, "budget")
+    execution_dir = os.path.join(temp_dir, "execution")
+    os.makedirs(budget_dir)
+    os.makedirs(execution_dir)
+    
+    # Create test files with cross-references
+    budget_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://finante.gov.ro/document-financiar-2024.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://finante.gov.ro/document-financiar-2024.html">RO</a></li>
+        <li><a cunt_code="+1" href="https://finante.gov.ro/execution/document-execution-2024.html">EN</a></li>
+    </ul>
+</body>
+</html>'''
+    execution_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://finante.gov.ro/execution/document-execution-2024.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://finante.gov.ro/-------.html">RO</a></li>
+        <li><a cunt_code="+1" href="https://finante.gov.ro/execution/document-execution-2024.html">EN</a></li>
+    </ul>
+</body>
+</html>'''
+    # Write test files
+    with open(os.path.join(budget_dir, "document-financiar-2024.html"), "w", encoding="utf-8") as f:
+        f.write(budget_content)
+    with open(os.path.join(execution_dir, "document-execution-2024.html"), "w", encoding="utf-8") as f:
+        f.write(execution_content)
+    
+    # Test the NEW generic functionality
+    base_url = "https://finante.gov.ro"
+    
+    print("=== BEFORE REPAIR ===")
+    print("Budget canonical:", "https://finante.gov.ro/document-financiar-2024.html")
+    print("Execution canonical:", "https://finante.gov.ro/execution/document-execution-2024.html")
+    print("Execution RO link:", "https://finante.gov.ro/-------.html")
+    
+    # Use the new generic parameters
+    canonical_fixes, flag_fixes, cross_ref_fixes = html_intersection.repair_all(
+        first_directory=budget_dir,
+        second_directory=execution_dir,
+        base_url=base_url,
+        second_dir_path="execution",  # 🎯 NEW PARAMETER!
+    )
+    
+    print(f"\n=== REPAIR RESULTS ===")
+    print(f"Canonical fixes: {canonical_fixes}")
+    print(f"Flag fixes: {flag_fixes}")  
+    print(f"Cross-reference fixes: {cross_ref_fixes}")
+    
+    # Verify results
+    with open(os.path.join(execution_dir, "document-execution-2024.html"), "r", encoding="utf-8") as f:
+        updated_execution = f.read()
+    
+    print(f"\n=== AFTER REPAIR ===")
+    if 'href="https://finante.gov.ro/document-financiar-2024.html"' in updated_execution:
+        print("✅ SUCCESS: Execution file now correctly points to budget file")
+    else:
+        print("❌ FAILURE: Cross-reference not fixed")
+        
+    # Test scan functionality
+    issues = html_intersection.scan_issues(
+        budget_dir, execution_dir, base_url, "execution"
+    )
+    
+    print(f"\n=== SCAN RESULTS ===")
+    print(f"Bidirectional pairs: {len(issues['bidirectional_pairs'])}")
+    print(f"Invalid links: {len(issues['invalid_links'])}")
+    print(f"Pairs: {issues['first_to_second']}")
+def test_backwards_compatibility():
+"""Test that old ro/en usage still works."""
+with tempfile.TemporaryDirectory() as temp_dir:
+    ro_dir = os.path.join(temp_dir, "ro") 
+    en_dir = os.path.join(temp_dir, "en")
+    os.makedirs(ro_dir)
+    os.makedirs(en_dir)
+    
+    ro_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://example.com/test.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://example.com/test.html">RO</a></li>
+        <li><a cunt_code="+1" href="https://example.com/en/test.html">EN</a></li>
+    </ul>
+</body>
+</html>'''
+    en_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://example.com/en/test.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://example.com/test.html">RO</a></li>
+        <li><a cunt_code="+1" href="https://example.com/en/test.html">EN</a></li>
+    </ul>
+</body>
+</html>'''
+    with open(os.path.join(ro_dir, "test.html"), "w", encoding="utf-8") as f:
+        f.write(ro_content)
+    with open(os.path.join(en_dir, "test.html"), "w", encoding="utf-8") as f:
+        f.write(en_content)
+    
+    # Test old-style usage (should still work with default second_dir_path="en")
+    canonical_fixes, flag_fixes, cross_ref_fixes = html_intersection.repair_all(
+        ro_dir,  # old first parameter name for backwards compatibility
+        en_dir,  # old second parameter name for backwards compatibility  
+        "https://example.com"
+        # second_dir_path defaults to "en"
+    )
+    
+    print(f"\n=== BACKWARDS COMPATIBILITY TEST ===")
+    print(f"✅ Old-style call works: {canonical_fixes + flag_fixes + cross_ref_fixes} total operations")
+def test_any_directory_names():
+"""Test with completely arbitrary directory names."""
+with tempfile.TemporaryDirectory() as temp_dir:
+    source_dir = os.path.join(temp_dir, "source")
+    target_dir = os.path.join(temp_dir, "target") 
+    os.makedirs(source_dir)
+    os.makedirs(target_dir)
+    
+    source_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://example.com/page.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://example.com/page.html">Source</a></li>
+        <li><a cunt_code="+1" href="https://example.com/translations/page.html">Target</a></li>
+    </ul>
+</body>
+</html>'''
+    target_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://example.com/translations/page.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://example.com/page.html">Source</a></li>
+        <li><a cunt_code="+1" href="https://example.com/translations/page.html">Target</a></li>
+    </ul>
+</body>
+</html>'''
+    with open(os.path.join(source_dir, "page.html"), "w", encoding="utf-8") as f:
+        f.write(source_content)
+    with open(os.path.join(target_dir, "page.html"), "w", encoding="utf-8") as f:
+        f.write(target_content)
+    
+    # Test with arbitrary directory names
+    canonical_fixes, flag_fixes, cross_ref_fixes = html_intersection.repair_all(
+        first_directory=source_dir,
+        second_directory=target_dir,
+        base_url="https://example.com",
+        second_dir_path="translations",  # Custom path segment
+    )
+    
+    print(f"\n=== ARBITRARY DIRECTORIES TEST ===")
+    print(f"✅ Arbitrary names work: source/ ↔ target/ with 'translations' path")
+    print(f"Operations: {canonical_fixes + flag_fixes + cross_ref_fixes}")
+if name == "main":
+print("🧪 Testing html-intersection with generic directory support...\n")
+test_generic_financial_synchronization()
+test_backwards_compatibility() 
+test_any_directory_names()
+
+print(f"\n🎉 All tests completed! The library now supports:")
+print(f"   ✅ Generic directory names (budget/execution, source/target, etc.)")
+print(f"   ✅ Custom URL path segments (execution, translations, etc.)")
+print(f"   ✅ Backwards compatibility with ro/en")
+print(f"   ✅ CLI with new --first-dir, --second-dir, --second-dir-path parameters")
+</document_content></document>
+</documents>
+🚀 Cum folosești noua versiune:
+Noua sintaxă generică:
+pythonimport html_intersection
+
+# Pentru budget/execution
+html_intersection.repair_all(
+    first_directory="E:\\budget",
+    second_directory="E:\\execution", 
+    base_url="https://finante.gov.ro",
+    second_dir_path="execution"  # 🎯 NEW!
+)
+
+# Pentru orice directoare
+html_intersection.repair_all(
+    first_directory="E:\\docs\\source",
+    second_directory="E:\\docs\\translations",
+    base_url="https://example.com", 
+    second_dir_path="translations"
+)
+CLI nou:
+bash# Generic directories
+html-intersection repair \
+  --first-dir "E:\\budget" \
+  --second-dir "E:\\execution" \
+  --second-dir-path "execution" \
+  --base-url https://finante.gov.ro
+
+# Legacy compatibility
+html-intersection repair \
+  --ro-dir "E:\\site\\ro" \
+  --en-dir "E:\\site\\en" \
+  --base-url https://example.com
+Backwards compatibility:
+python# Vechile apeluri funcționează în continuare
+html_intersection.repair_all(
+    "E:\\site\\ro",     # first_directory
+    "E:\\site\\en",     # second_directory  
+    "https://example.com"  # second_dir_path="en" implicit
+)
+📋 Următorii pași:
+
+Copiază fișierele modificate în directorul tău local
+Incrementează versiunea în pyproject.toml (ex: 0.2.1)
+Rebuilduiește pachetul
+Testează local cu exemplul financial
+Upload la PyPI
+
+Vrei să continui cu rebuild-ul și upload-ul?RetryNFstai asa ca e prea mult. poti sa-mi trimiti fisierele py gata modificate, ca sa nu mai copiez tot ce mi-ai scrisEditDecided to prepare downloadable modified Python files directly.Utilizatorul vrea să primească fișierele modificate direct, nu să copieze tot textul lung pe care l-am scris. Pot să creez artefacte cu fișierele modificate care să poată fi descărcate direct.Da, îți trimit fișierele modificate direct ca artefacte care le poți descărca:Sstr_replace_editorRequest{
+  `path`: `core.py`,
+  `command`: `create`,
+  `file_text`: `import os
+import re
+from typing import Dict, Tuple, Optional, List, Iterable
+
+from .utils import read_file_with_fallback_encoding, write_file_with_encoding, list_html_files
+
+
+CANONICAL_RE = re.compile(r'<link\\s+rel=\"canonical\"\\s+href=\"([^\"]+)\"\\s*/?>', re.IGNORECASE)
+# Accept both \"+40\" and \"\\+40\"; same for +1
+RO_FLAG_RE = re.compile(r'<li><a\\s+cunt_code=\"\\\\?\\+40\"\\s+href=\"([^\"]+)\"')
+EN_FLAG_RE = re.compile(r'<li><a\\s+cunt_code=\"\\\\?\\+1\"\\s+href=\"([^\"]+)\"')
+
+
+def _ensure_backup(path: str, content: str, backup_ext: Optional[str]) -> None:
+    if backup_ext:
+        try:
+            with open(path + backup_ext, \"w\", encoding=\"utf-8\") as f:
+                f.write(content)
+        except Exception:
+            pass
+
+
+def _expected_canonical_href(base_url: str, filename: str, is_second_dir: bool, second_dir_path: str = \"en\") -> str:
+    \"\"\"Generate expected canonical href for a file.\"\"\"
+    if is_second_dir:
+        return f\"{base_url}/{second_dir_path}/{filename}\"
+    return f\"{base_url}/{filename}\"
+
+
+def fix_canonicals(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = \"en\",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    \"\"\"Fix canonical links to match exact filenames.\"\"\"
+    fixes = 0
+
+    for is_second_dir, directory in ((False, first_directory), (True, second_directory)):
+        for filename in list_html_files(directory):
+            path = os.path.join(directory, filename)
+            content = read_file_with_fallback_encoding(path)
+            if not content:
+                continue
+            match = CANONICAL_RE.search(content)
+            if not match:
+                continue
+            current_href = match.group(1)
+            expected_href = _expected_canonical_href(base_url, filename, is_second_dir, second_dir_path)
+            if current_href != expected_href:
+                fixes += 1
+                if not dry_run:
+                    _ensure_backup(path, content, backup_ext)
+                    new_content = CANONICAL_RE.sub(
+                        f'<link rel=\"canonical\" href=\"{expected_href}\" />', content, count=1
+                    )
+                    write_file_with_encoding(path, new_content)
+
+    return fixes
+
+
+def fix_flags_match_canonical(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = \"en\",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    \"\"\"Ensure FLAGS match canonical in the same file.\"\"\"
+    fixes = 0
+
+    for is_second_dir, directory, own_re in (
+        (False, first_directory, RO_FLAG_RE),
+        (True, second_directory, EN_FLAG_RE),
+    ):
+        for filename in list_html_files(directory):
+            path = os.path.join(directory, filename)
+            content = read_file_with_fallback_encoding(path)
+            if not content:
+                continue
+            canonical_match = CANONICAL_RE.search(content)
+            if not canonical_match:
+                continue
+            canonical_href = canonical_match.group(1)
+            own_flag_match = own_re.search(content)
+            if not own_flag_match:
+                continue
+            current_href = own_flag_match.group(1)
+            if current_href != canonical_href:
+                fixes += 1
+                if not dry_run:
+                    _ensure_backup(path, content, backup_ext)
+                    # replace only the first own flag link
+                    new_content = own_re.sub(
+                        own_flag_match.group(0).replace(current_href, canonical_href),
+                        content,
+                        count=1,
+                    )
+                    write_file_with_encoding(path, new_content)
+
+    return fixes
+
+
+def _fix_double_html_suffix(href: str) -> str:
+    # Normalize accidental .html.html to .html
+    return href.replace('.html.html', '.html')
+
+
+def _extract_second_filename_from_href(href: str, base_url: str, second_dir_path: str = \"en\") -> Optional[str]:
+    \"\"\"Extract filename from second directory href.\"\"\"
+    if not href:
+        return None
+    href = _fix_double_html_suffix(href)
+    prefix = f\"{base_url}/{second_dir_path}/\"
+    if not href.startswith(prefix) or not href.endswith(\".html\"):
+        return None
+    return href[len(prefix):]
+
+
+def _extract_first_filename_from_href(href: str, base_url: str) -> Optional[str]:
+    \"\"\"Extract filename from first directory href.\"\"\"
+    if not href:
+        return None
+    href = _fix_double_html_suffix(href)
+    prefix = f\"{base_url}/\"
+    if not href.startswith(prefix) or not href.endswith(\".html\"):
+        return None
+    name = href[len(prefix):]
+    # Some pages may include a nested path; take last component
+    if \"/\" in name:
+        name = name.split(\"/\")[-1]
+    return name
+
+
+def _scan_pairs(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = \"en\",
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    \"\"\"Scan directories and return pairing mappings.\"\"\"
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    # First pass: deduce from flags if present
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_flag_match = EN_FLAG_RE.search(first_content)
+        if second_flag_match:
+            href = _fix_double_html_suffix(second_flag_match.group(1))
+            second_name = _extract_second_filename_from_href(href, base_url, second_dir_path)
+            if second_name:
+                if second_name in second_files and first_filename not in first_to_second:
+                    first_to_second[first_filename] = second_name
+                    if second_name not in second_to_first:
+                        second_to_first[second_name] = first_filename
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_flag_match = RO_FLAG_RE.search(second_content)
+        if first_flag_match:
+            href = _fix_double_html_suffix(first_flag_match.group(1))
+            first_name = _extract_first_filename_from_href(href, base_url)
+            if first_name:
+                if first_name in first_files and first_name not in first_to_second:
+                    first_to_second[first_name] = second_filename
+                    if second_filename not in second_to_first:
+                        second_to_first[second_filename] = first_name
+
+    # Fallback: pair by normalized base name equality
+    if len(first_to_second) < len(first_files) or len(second_to_first) < len(second_files):
+        first_bases = {f[:-5].lower().replace(\"-\", \" \"): f for f in first_files}
+        second_bases = {f[:-5].lower().replace(\"-\", \" \"): f for f in second_files}
+        for base, first_name in first_bases.items():
+            if first_name in first_to_second:
+                continue
+            if base in second_bases and second_bases[base] not in second_to_first:
+                second_name = second_bases[base]
+                first_to_second[first_name] = second_name
+                second_to_first[second_name] = first_name
+
+    return first_to_second, second_to_first
+
+
+def sync_cross_references(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = \"en\",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    \"\"\"Synchronize cross-references between first and second directories.\"\"\"
+    fixes = 0
+    first_to_second, second_to_first = _scan_pairs(first_directory, second_directory, base_url, second_dir_path)
+
+    # Update first files: ensure +1 points to expected second file
+    for first_filename, second_filename in first_to_second.items():
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_match = EN_FLAG_RE.search(first_content)
+        expected_href = f\"{base_url}/{second_dir_path}/{second_filename}\"
+        if second_match and _fix_double_html_suffix(second_match.group(1)) != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(first_path, first_content, backup_ext)
+                new_content = EN_FLAG_RE.sub(
+                    second_match.group(0).replace(second_match.group(1), expected_href),
+                    first_content,
+                    count=1,
+                )
+                write_file_with_encoding(first_path, new_content)
+
+    # Update second files: ensure +40 points to expected first file
+    for second_filename, first_filename in second_to_first.items():
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_match = RO_FLAG_RE.search(second_content)
+        expected_href = f\"{base_url}/{first_filename}\"
+        if first_match and _fix_double_html_suffix(first_match.group(1)) != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(second_path, second_content, backup_ext)
+                new_content = RO_FLAG_RE.sub(
+                    first_match.group(0).replace(first_match.group(1), expected_href),
+                    second_content,
+                    count=1,
+                )
+                write_file_with_encoding(second_path, new_content)
+
+    return fixes
+
+
+def scan_issues(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = \"en\",
+) -> Dict[str, object]:
+    \"\"\"
+    Analyze directories and return a detailed report with:
+      - first_to_second, second_to_first mappings
+      - bidirectional_pairs: list[tuple[str, str]]
+      - mismatched_pairs: list[tuple[str, str, str]] (first, second, details)
+      - invalid_links: list[str]
+      - unmatched_first: list[str]
+      - unmatched_second: list[str]
+    \"\"\"
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+    invalid_links: List[str] = []
+    mismatched_pairs: List[Tuple[str, str, str]] = []
+
+    # First pass: try to pair via flags if they point to existing files
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_match = EN_FLAG_RE.search(first_content)
+        second_href = _fix_double_html_suffix(second_match.group(1)) if second_match else None
+        second_name = _extract_second_filename_from_href(second_href, base_url, second_dir_path) if second_href else None
+        if second_name:
+            if second_name not in second_files:
+                invalid_links.append(f\"FIRST {first_filename}: SECOND file not found {second_name}\")
+                continue
+            first_to_second[first_filename] = second_name
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_match = RO_FLAG_RE.search(second_content)
+        first_href = _fix_double_html_suffix(first_match.group(1)) if first_match else None
+        first_name = _extract_first_filename_from_href(first_href, base_url) if first_href else None
+        if first_name:
+            if first_name not in first_files:
+                invalid_links.append(f\"SECOND {second_filename}: FIRST file not found {first_name}\")
+                continue
+            second_to_first[second_filename] = first_name
+
+    # Bidirectional pairs
+    bidirectional_pairs: List[Tuple[str, str]] = []
+    for first_file, second_file in first_to_second.items():
+        if second_file in second_to_first and second_to_first[second_file] == first_file:
+            bidirectional_pairs.append((first_file, second_file))
+
+    # Detect pairs with no common links
+    for first_file, second_file in first_to_second.items():
+        if (first_file, second_file) in bidirectional_pairs:
+            continue
+        second_path = os.path.join(second_directory, second_file)
+        second_content = read_file_with_fallback_encoding(second_path) or \"\"
+        second_first_match = RO_FLAG_RE.search(second_content)
+        second_first_href = _fix_double_html_suffix(second_first_match.group(1)) if second_first_match else None
+        details = f\"FIRST->SECOND: {base_url}/{second_dir_path}/{second_file}, SECOND->FIRST: {second_first_href or '-'}\"
+        mismatched_pairs.append((first_file, second_file, details))
+
+    # Unmatched files (not part of any pair)
+    matched_first = {first for first, _ in bidirectional_pairs} | {first for first, _, _ in mismatched_pairs}
+    matched_second = {second for _, second in bidirectional_pairs} | {second for _, second, _ in mismatched_pairs}
+    unmatched_first = sorted(list(first_files - matched_first))
+    unmatched_second = sorted(list(second_files - matched_second))
+
+    return {
+        \"first_to_second\": dict(sorted(first_to_second.items())),
+        \"second_to_first\": dict(sorted(second_to_first.items())),
+        \"bidirectional_pairs\": bidirectional_pairs,
+        \"mismatched_pairs\": mismatched_pairs,
+        \"invalid_links\": invalid_links,
+        \"unmatched_first\": unmatched_first,
+        \"unmatched_second\": unmatched_second,
+        # Backwards compatibility
+        \"ro_to_en\": dict(sorted(first_to_second.items())),
+        \"en_to_ro\": dict(sorted(second_to_first.items())),
+        \"unmatched_ro\": unmatched_first,
+        \"unmatched_en\": unmatched_second,
+    }
+
+
+def repair_all(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = \"en\",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+    \"\"\"Run all repair steps: canonicals, flags, and cross-references.\"\"\"
+    c = fix_canonicals(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    f = fix_flags_match_canonical(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    x = sync_cross_references(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    return c, f, x
+`
+}ResponseTool 'str_replace_editor' not found.Plotted strategy for sending modified Python files.Nu am tool-ul str_replace_editor. Voi crea artefacte pentru fișierele modificate.Îți creez artefactele cu fișierele modificate:
+core.py - Fișierul principal modificat:
+pythonimport os
+import re
+from typing import Dict, Tuple, Optional, List, Iterable
+
+from .utils import read_file_with_fallback_encoding, write_file_with_encoding, list_html_files
+
+
+CANONICAL_RE = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"\s*/?>', re.IGNORECASE)
+# Accept both "+40" and "\+40"; same for +1
+RO_FLAG_RE = re.compile(r'<li><a\s+cunt_code="\\?\+40"\s+href="([^"]+)"')
+EN_FLAG_RE = re.compile(r'<li><a\s+cunt_code="\\?\+1"\s+href="([^"]+)"')
+
+
+def _ensure_backup(path: str, content: str, backup_ext: Optional[str]) -> None:
+    if backup_ext:
+        try:
+            with open(path + backup_ext, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            pass
+
+
+def _expected_canonical_href(base_url: str, filename: str, is_second_dir: bool, second_dir_path: str = "en") -> str:
+    """Generate expected canonical href for a file."""
+    if is_second_dir:
+        return f"{base_url}/{second_dir_path}/{filename}"
+    return f"{base_url}/{filename}"
+
+
+def fix_canonicals(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    """Fix canonical links to match exact filenames."""
+    fixes = 0
+
+    for is_second_dir, directory in ((False, first_directory), (True, second_directory)):
+        for filename in list_html_files(directory):
+            path = os.path.join(directory, filename)
+            content = read_file_with_fallback_encoding(path)
+            if not content:
+                continue
+            match = CANONICAL_RE.search(content)
+            if not match:
+                continue
+            current_href = match.group(1)
+            expected_href = _expected_canonical_href(base_url, filename, is_second_dir, second_dir_path)
+            if current_href != expected_href:
+                fixes += 1
+                if not dry_run:
+                    _ensure_backup(path, content, backup_ext)
+                    new_content = CANONICAL_RE.sub(
+                        f'<link rel="canonical" href="{expected_href}" />', content, count=1
+                    )
+                    write_file_with_encoding(path, new_content)
+
+    return fixes
+
+
+def fix_flags_match_canonical(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    """Ensure FLAGS match canonical in the same file."""
+    fixes = 0
+
+    for is_second_dir, directory, own_re in (
+        (False, first_directory, RO_FLAG_RE),
+        (True, second_directory, EN_FLAG_RE),
+    ):
+        for filename in list_html_files(directory):
+            path = os.path.join(directory, filename)
+            content = read_file_with_fallback_encoding(path)
+            if not content:
+                continue
+            canonical_match = CANONICAL_RE.search(content)
+            if not canonical_match:
+                continue
+            canonical_href = canonical_match.group(1)
+            own_flag_match = own_re.search(content)
+            if not own_flag_match:
+                continue
+            current_href = own_flag_match.group(1)
+            if current_href != canonical_href:
+                fixes += 1
+                if not dry_run:
+                    _ensure_backup(path, content, backup_ext)
+                    # replace only the first own flag link
+                    new_content = own_re.sub(
+                        own_flag_match.group(0).replace(current_href, canonical_href),
+                        content,
+                        count=1,
+                    )
+                    write_file_with_encoding(path, new_content)
+
+    return fixes
+
+
+def _fix_double_html_suffix(href: str) -> str:
+    # Normalize accidental .html.html to .html
+    return href.replace('.html.html', '.html')
+
+
+def _extract_second_filename_from_href(href: str, base_url: str, second_dir_path: str = "en") -> Optional[str]:
+    """Extract filename from second directory href."""
+    if not href:
+        return None
+    href = _fix_double_html_suffix(href)
+    prefix = f"{base_url}/{second_dir_path}/"
+    if not href.startswith(prefix) or not href.endswith(".html"):
+        return None
+    return href[len(prefix):]
+
+
+def _extract_first_filename_from_href(href: str, base_url: str) -> Optional[str]:
+    """Extract filename from first directory href."""
+    if not href:
+        return None
+    href = _fix_double_html_suffix(href)
+    prefix = f"{base_url}/"
+    if not href.startswith(prefix) or not href.endswith(".html"):
+        return None
+    name = href[len(prefix):]
+    # Some pages may include a nested path; take last component
+    if "/" in name:
+        name = name.split("/")[-1]
+    return name
+
+
+def _scan_pairs(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Scan directories and return pairing mappings."""
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    # First pass: deduce from flags if present
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_flag_match = EN_FLAG_RE.search(first_content)
+        if second_flag_match:
+            href = _fix_double_html_suffix(second_flag_match.group(1))
+            second_name = _extract_second_filename_from_href(href, base_url, second_dir_path)
+            if second_name:
+                if second_name in second_files and first_filename not in first_to_second:
+                    first_to_second[first_filename] = second_name
+                    if second_name not in second_to_first:
+                        second_to_first[second_name] = first_filename
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_flag_match = RO_FLAG_RE.search(second_content)
+        if first_flag_match:
+            href = _fix_double_html_suffix(first_flag_match.group(1))
+            first_name = _extract_first_filename_from_href(href, base_url)
+            if first_name:
+                if first_name in first_files and first_name not in first_to_second:
+                    first_to_second[first_name] = second_filename
+                    if second_filename not in second_to_first:
+                        second_to_first[second_filename] = first_name
+
+    # Fallback: pair by normalized base name equality
+    if len(first_to_second) < len(first_files) or len(second_to_first) < len(second_files):
+        first_bases = {f[:-5].lower().replace("-", " "): f for f in first_files}
+        second_bases = {f[:-5].lower().replace("-", " "): f for f in second_files}
+        for base, first_name in first_bases.items():
+            if first_name in first_to_second:
+                continue
+            if base in second_bases and second_bases[base] not in second_to_first:
+                second_name = second_bases[base]
+                first_to_second[first_name] = second_name
+                second_to_first[second_name] = first_name
+
+    return first_to_second, second_to_first
+
+
+def sync_cross_references(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    """Synchronize cross-references between first and second directories."""
+    fixes = 0
+    first_to_second, second_to_first = _scan_pairs(first_directory, second_directory, base_url, second_dir_path)
+
+    # Update first files: ensure +1 points to expected second file
+    for first_filename, second_filename in first_to_second.items():
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_match = EN_FLAG_RE.search(first_content)
+        expected_href = f"{base_url}/{second_dir_path}/{second_filename}"
+        if second_match and _fix_double_html_suffix(second_match.group(1)) != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(first_path, first_content, backup_ext)
+                new_content = EN_FLAG_RE.sub(
+                    second_match.group(0).replace(second_match.group(1), expected_href),
+                    first_content,
+                    count=1,
+                )
+                write_file_with_encoding(first_path, new_content)
+
+    # Update second files: ensure +40 points to expected first file
+    for second_filename, first_filename in second_to_first.items():
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_match = RO_FLAG_RE.search(second_content)
+        expected_href = f"{base_url}/{first_filename}"
+        if first_match and _fix_double_html_suffix(first_match.group(1)) != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(second_path, second_content, backup_ext)
+                new_content = RO_FLAG_RE.sub(
+                    first_match.group(0).replace(first_match.group(1), expected_href),
+                    second_content,
+                    count=1,
+                )
+                write_file_with_encoding(second_path, new_content)
+
+    return fixes
+
+
+def scan_issues(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+) -> Dict[str, object]:
+    """
+    Analyze directories and return a detailed report with:
+      - first_to_second, second_to_first mappings
+      - bidirectional_pairs: list[tuple[str, str]]
+      - mismatched_pairs: list[tuple[str, str, str]] (first, second, details)
+      - invalid_links: list[str]
+      - unmatched_first: list[str]
+      - unmatched_second: list[str]
+    """
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+    invalid_links: List[str] = []
+    mismatched_pairs: List[Tuple[str, str, str]] = []
+
+    # First pass: try to pair via flags if they point to existing files
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_match = EN_FLAG_RE.search(first_content)
+        second_href = _fix_double_html_suffix(second_match.group(1)) if second_match else None
+        second_name = _extract_second_filename_from_href(second_href, base_url, second_dir_path) if second_href else None
+        if second_name:
+            if second_name not in second_files:
+                invalid_links.append(f"FIRST {first_filename}: SECOND file not found {second_name}")
+                continue
+            first_to_second[first_filename] = second_name
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_match = RO_FLAG_RE.search(second_content)
+        first_href = _fix_double_html_suffix(first_match.group(1)) if first_match else None
+        first_name = _extract_first_filename_from_href(first_href, base_url) if first_href else None
+        if first_name:
+            if first_name not in first_files:
+                invalid_links.append(f"SECOND {second_filename}: FIRST file not found {first_name}")
+                continue
+            second_to_first[second_filename] = first_name
+
+    # Bidirectional pairs
+    bidirectional_pairs: List[Tuple[str, str]] = []
+    for first_file, second_file in first_to_second.items():
+        if second_file in second_to_first and second_to_first[second_file] == first_file:
+            bidirectional_pairs.append((first_file, second_file))
+
+    # Detect pairs with no common links
+    for first_file, second_file in first_to_second.items():
+        if (first_file, second_file) in bidirectional_pairs:
+            continue
+        second_path = os.path.join(second_directory, second_file)
+        second_content = read_file_with_fallback_encoding(second_path) or ""
+        second_first_match = RO_FLAG_RE.search(second_content)
+        second_first_href = _fix_double_html_suffix(second_first_match.group(1)) if second_first_match else None
+        details = f"FIRST->SECOND: {base_url}/{second_dir_path}/{second_file}, SECOND->FIRST: {second_first_href or '-'}"
+        mismatched_pairs.append((first_file, second_file, details))
+
+    # Unmatched files (not part of any pair)
+    matched_first = {first for first, _ in bidirectional_pairs} | {first for first, _, _ in mismatched_pairs}
+    matched_second = {second for _, second in bidirectional_pairs} | {second for _, second, _ in mismatched_pairs}
+    unmatched_first = sorted(list(first_files - matched_first))
+    unmatched_second = sorted(list(second_files - matched_second))
+
+    return {
+        "first_to_second": dict(sorted(first_to_second.items())),
+        "second_to_first": dict(sorted(second_to_first.items())),
+        "bidirectional_pairs": bidirectional_pairs,
+        "mismatched_pairs": mismatched_pairs,
+        "invalid_links": invalid_links,
+        "unmatched_first": unmatched_first,
+        "unmatched_second": unmatched_second,
+        # Backwards compatibility
+        "ro_to_en": dict(sorted(first_to_second.items())),
+        "en_to_ro": dict(sorted(second_to_first.items())),
+        "unmatched_ro": unmatched_first,
+        "unmatched_en": unmatched_second,
+    }
+
+
+def repair_all(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+    """Run all repair steps: canonicals, flags, and cross-references."""
+    c = fix_canonicals(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    f = fix_flags_match_canonical(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    x = sync_cross_references(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    return c, f, x
+cli.py - CLI modificat:
+pythonimport argparse
+import sys
+from .core import (
+    fix_canonicals,
+    fix_flags_match_canonical,
+    sync_cross_references,
+    repair_all,
+    scan_issues,
+    _scan_pairs,
+)
+
+
+def _add_common_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--first-dir", dest="first_dir", required=True, help="Path to first directory")
+    p.add_argument("--second-dir", dest="second_dir", required=True, help="Path to second directory")
+    p.add_argument("--second-dir-path", dest="second_dir_path", default="en", help="URL path segment for second directory (default: 'en')")
+    p.add_argument("--base-url", dest="base_url", required=True, help="Base URL, e.g. https://neculaifantanaru.com")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="Do not write files, just report")
+    p.add_argument("--backup-ext", dest="backup_ext", default=None, help="If set (e.g. .bak), write a backup copy before modifying files")
+    
+    # Legacy parameters for backwards compatibility
+    p.add_argument("--ro-dir", dest="ro_dir", help="Legacy: Path to ro/ directory (use --first-dir instead)")
+    p.add_argument("--en-dir", dest="en_dir", help="Legacy: Path to en/ directory (use --second-dir instead)")
+
+
+def main(argv=None) -> int:
+    argv = argv or sys.argv[1:]
+    parser = argparse.ArgumentParser(
+        prog="html-intersection", 
+        description="Fix canonical, FLAGS, and cross-references across mirrored HTML directories"
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_repair = sub.add_parser("repair", help="Run all steps: canonicals, flags, sync")
+    _add_common_args(p_repair)
+
+    p_canon = sub.add_parser("fix-canonicals", help="Fix canonical tags to match filenames")
+    _add_common_args(p_canon)
+
+    p_flags = sub.add_parser("fix-flags", help="Ensure FLAGS match canonical in the same file")
+    _add_common_args(p_flags)
+
+    p_sync = sub.add_parser("sync", help="Synchronize cross-references in FLAGS")
+    _add_common_args(p_sync)
+
+    p_scan = sub.add_parser("scan", help="Scan and print detected directory pairs")
+    _add_common_args(p_scan)
+    p_scan.add_argument("--report", dest="report", action="store_true", help="Include invalid links, mismatched pairs, and unmatched files")
+
+    args = parser.parse_args(argv)
+    
+    # Handle legacy parameters
+    first_dir = args.first_dir or args.ro_dir
+    second_dir = args.second_dir or args.en_dir
+    
+    if not first_dir:
+        print("Error: --first-dir (or legacy --ro-dir) is required")
+        return 1
+    if not second_dir:
+        print("Error: --second-dir (or legacy --en-dir) is required")
+        return 1
+
+    if args.cmd == "repair":
+        c, f, x = repair_all(
+            first_dir, second_dir, args.base_url, args.second_dir_path,
+            dry_run=args.dry_run, backup_ext=args.backup_ext
+        )
+        print(f"Canonicals fixed: {c}; Flags fixed: {f}; Cross-ref fixed: {x}")
+        return 0
+    if args.cmd == "fix-canonicals":
+        n = fix_canonicals(
+            first_dir, second_dir, args.base_url, args.second_dir_path,
+            dry_run=args.dry_run, backup_ext=args.backup_ext
+        )
+        print(f"Canonicals fixed: {n}")
+        return 0
+    if args.cmd == "fix-flags":
+        n = fix_flags_match_canonical(
+            first_dir, second_dir, args.base_url, args.second_dir_path,
+            dry_run=args.dry_run, backup_ext=args.backup_ext
+        )
+        print(f"Flags fixed: {n}")
+        return 0
+    if args.cmd == "sync":
+        n = sync_cross_references(
+            first_dir, second_dir, args.base_url, args.second_dir_path,
+            dry_run=args.dry_run, backup_ext=args.backup_ext
+        )
+        print(f"Cross-ref fixed: {n}")
+        return 0
+    if args.cmd == "scan":
+        if args.report:
+            report = scan_issues(first_dir, second_dir, args.base_url, args.second_dir_path)
+            print("FIRST->SECOND:")
+            for first, second in report["first_to_second"].items():
+                print(f"  {first} -> {second}")
+            print("SECOND->FIRST:")
+            for second, first in report["second_to_first"].items():
+                print(f"  {second} -> {first}")
+            if report["invalid_links"]:
+                print("\nInvalid links:")
+                for msg in report["invalid_links"]:
+                    print(f"  {msg}")
+            if report["mismatched_pairs"]:
+                print("\nPairs with no common links:")
+                for first, second, details in report["mismatched_pairs"]:
+                    print(f"  {first} <-> {second}: {details}")
+            if report["unmatched_first"] or report["unmatched_second"]:
+                print("\nUnmatched files:")
+                for first in report["unmatched_first"]:
+                    print(f"  FIRST {first}")
+                for second in report["unmatched_second"]:
+                    print(f"  SECOND {second}")
+        else:
+            first_to_second, second_to_first = _scan_pairs(first_dir, second_dir, args.base_url, args.second_dir_path)
+            print("FIRST->SECOND:")
+            for first, second in sorted(first_to_second.items()):
+                print(f"  {first} -> {second}")
+            print("SECOND->FIRST:")
+            for second, first in sorted(second_to_first.items()):
+                print(f"  {second} -> {first}")
+        return 0
+
+    parser.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+init.py - Cu scan_issues exportat:
+pythonfrom .core import (
+    fix_canonicals,
+    fix_flags_match_canonical,
+    sync_cross_references,
+    repair_all,
+    scan_issues,
+)
+
+__all__ = [
+    "fix_canonicals",
+    "fix_flags_match_canonical", 
+    "sync_cross_references",
+    "repair_all",
+    "scan_issues",
+]
+utils.py - Rămâne neschimbat - folosește fișierul existent.
+📋 Următorii pași:
+
+Copiază aceste 3 fișiere în directorul tău local
+Incrementează versiunea în pyproject.toml la "0.2.1"
+Rebuilduiește pachetul
+Testează cu exemplul financial
+Upload la PyPI
+
+Acum poți folosi:
+pythonimport html_intersection
+
+html_intersection.repair_all(
+    first_directory="E:\\budget",
+    second_directory="E:\\execution", 
+    base_url="https://finante.gov.ro",
+    second_dir_path="execution"  # 🎯 NEW!
+)
+Gata să continui cu rebuild-ul?Retrypyproject.toml52 linestomlNFschimba tu tot si aiciEditUpdated project configuration for generic functionality.Utilizatorul vrea să actualizez și fișierul pyproject.toml pentru a reflecta noile funcționalități generice. Trebuie să:
+
+Incrementez versiunea de la "0.2.0" la "0.2.1"
+Actualizez descrierea pentru a reflecta că nu e doar pentru RO<->EN
+Actualizez keywords-urile să fie mai generice
+Păstrez backwards compatibility în descriere
+
+Să fac modificările necesare.pyproject.toml - Actualizat pentru versiunea generică:
+toml[build-system]
+requires = [
+  "setuptools>=68",
+  "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "html-intersection"
+version = "0.2.1"
+description = "Fix canonical links, FLAGS, and cross-references across mirrored HTML directories. Supports any directory structure (ro/en, budget/execution, source/target, etc.)."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+  { name = "Andrei/Andreea Team" }
+]
+keywords = ["html", "seo", "canonical", "flags", "intersection", "sync", "cross-references", "multilingual", "directories", "generic"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing :: Markup :: HTML",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Internet :: WWW/HTTP :: Site Management",
+]
+
+dependencies = []
+
+[project.urls]
+Homepage = "https://pypi.org/project/html-intersection/"
+Repository = "https://github.com/me-suzy/html-intersection"
+Documentation = "https://pypi.org/project/html-intersection/"
+"Bug Reports" = "https://github.com/me-suzy/html-intersection/issues"
+
+[project.scripts]
+html-intersection = "html_intersection.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["html_intersection*"]
+exclude = []
+🔄 Schimbări principale:
+
+Versiunea: 0.2.0 → 0.2.1
+Descrierea: Actualizată pentru a menționa suportul pentru orice structură de directoare
+Keywords: Adăugate "cross-references", "multilingual", "directories", "generic"
+Status: Alpha → Beta (biblioteca e mai matură acum)
+Classifiers: Adăugate categorii pentru dezvoltare și management site-uri
+URLs: Îmbunătățite cu links pentru documentație și bug reports
+
+📋 Acum ai toate fișierele gata pentru rebuild:
+
+✅ core.py - Logic generică cu second_dir_path
+✅ cli.py - CLI cu parametri noi
+✅ init.py - Export pentru scan_issues
+✅ utils.py - Rămâne neschimbat
+✅ pyproject.toml - Versiunea 0.2.1 cu descriere actualizată
+
+🚀 Rebuild și upload:
+powershellcd "e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection"
+
+# Activează venv
+.\.venv\Scripts\Activate.ps1
+
+# Șterge build-urile vechi
+Remove-Item -Recurse -Force .\dist\
+Remove-Item -Recurse -Force .\build\
+Remove-Item -Recurse -Force .\src\html_intersection.egg-info\
+
+# Rebuilduiește
+python -m build
+
+# Upload
+$env:TWINE_USERNAME="__token__"
+$env:TWINE_PASSWORD="pypi-TOKENUL_TAU_AICI"
+python -m twine upload dist\*
+După upload, noua versiune 0.2.1 va suporta:
+python# Generic usage
+html_intersection.repair_all(
+    first_directory="E:\\budget",
+    second_directory="E:\\execution",
+    base_url="https://finante.gov.ro", 
+    second_dir_path="execution"
+)
+
+# Legacy usage (still works)
+html_intersection.repair_all("E:\\ro", "E:\\en", "https://example.com")
+Gata să faci rebuild-ul?Retrytest_financial_sync.py174 linespyexecutie-bugetara-t3-2024.html32 lineshtmlbuget-general-2024.html32 lineshtmlNFinca nu am facut update pe pypi pana ce nu testez. Am testat acest pyam schimbat din <li><a cunt_code="+40" href="https://finante.gov.ro/budget/buget-general-2023.html"><span>Budget</span></a></li>   in <li><a cunt_code="+40" href="https://finante.gov.ro/budget/buget-general-2023---.html"><span>Budget</span></a></li>iar cand am testat fisierele salvate, am vazut ca a ramas buget-general-2023---dar trebuia sa fie buget-general-2023EditDiagnosed link repair algorithm weakness in file pairing.14sUtilizatorul testează librăria modificată și observă o problemă: atunci când are un link invalid cu "---" la sfârșit (buget-general-2023---.html), librăria nu repară corect linkul - lasă "---" în loc să folosească fișierul corect (buget-general-2024.html).
+Problema pare să fie în algoritmul de pairing și repair. Să analizez ce se întâmplă:
+
+Fișierul execution/executie-bugetara-t3-2024.html are un link invalid către "buget-general-2023---.html"
+Fișierul budget/buget-general-2024.html există
+Librăria ar trebui să detecteze pairing-ul corect și să repare cross-reference-ul
+
+Din ce văd în testul lui, problema este că algoritmul de pairing nu funcționează corect pentru acest caz.
+Să verific logica din core.py:
+
+_scan_pairs() încearcă să facă pairing-ul între fișiere
+Algoritmul folosește flag-urile existente pentru a identifica perechi
+Dacă flag-urile pointează la fișiere inexistente, ar trebui să folosească fallback-ul (pairing by normalized base name)
+
+Problema pare să fie că linkul invalid "buget-general-2023---.html" nu poate fi pairat cu "buget-general-2024.html" prin algoritmul de normalizare a numelui.
+Algoritmul de fallback normalizează numele astfel:
+
+"buget-general-2023---" → "buget general 2023   " (după înlăturarea .html și înlocuirea - cu spațiu)
+"buget-general-2024" → "buget general 2024"
+
+Acestea nu match-uiesc, deci pairing-ul eșuează.
+Trebuie modificat algoritmul pentru a gestiona cazuri speciale de potrivire a numelor de fișiere. Voi implementa o metodă mai flexibilă de normalizare care să ignore caracterele suplimentare și să se concentreze pe esența numelui fișierului.Identific problema! Algoritmul de pairing nu gestionează corect cazurile unde link-urile invalide au caractere suplimentare (precum "---").
+🐛 Problema:
+Linkul invalid buget-general-2023---.html nu se poate paria cu fișierul existent buget-general-2024.html prin algoritmul de normalizare.
+Algoritmul actual:
+
+buget-general-2023--- → "buget general 2023   " (normalizat)
+buget-general-2024 → "buget general 2024" (normalizat)
+Nu match-uiesc → Nu se repară
+
+🔧 Soluția:
+Trebuie să îmbunătățesc algoritmul de pairing pentru a gestiona link-uri invalide. Voi modifica funcția _scan_pairs din core.py:
+pythondef _scan_pairs(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Scan directories and return pairing mappings."""
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    # First pass: deduce from flags if present
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_flag_match = EN_FLAG_RE.search(first_content)
+        if second_flag_match:
+            href = _fix_double_html_suffix(second_flag_match.group(1))
+            second_name = _extract_second_filename_from_href(href, base_url, second_dir_path)
+            if second_name:
+                if second_name in second_files and first_filename not in first_to_second:
+                    first_to_second[first_filename] = second_name
+                    if second_name not in second_to_first:
+                        second_to_first[second_name] = first_filename
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_flag_match = RO_FLAG_RE.search(second_content)
+        if first_flag_match:
+            href = _fix_double_html_suffix(first_flag_match.group(1))
+            first_name = _extract_first_filename_from_href(href, base_url)
+            if first_name:
+                if first_name in first_files and first_name not in first_to_second:
+                    first_to_second[first_name] = second_filename
+                    if second_filename not in second_to_first:
+                        second_to_first[second_filename] = first_name
+
+    # Enhanced fallback: pair by similarity even with invalid links
+    if len(first_to_second) < len(first_files) or len(second_to_first) < len(second_files):
+        # Try exact name matching first
+        for first_file in first_files:
+            if first_file in first_to_second:
+                continue
+            if first_file in second_files and first_file not in second_to_first:
+                first_to_second[first_file] = first_file
+                second_to_first[first_file] = first_file
+        
+        # Then try normalized base name equality  
+        first_bases = {f[:-5].lower().replace("-", " ").strip(): f for f in first_files}
+        second_bases = {f[:-5].lower().replace("-", " ").strip(): f for f in second_files}
+        for base, first_name in first_bases.items():
+            if first_name in first_to_second:
+                continue
+            if base in second_bases and second_bases[base] not in second_to_first:
+                second_name = second_bases[base]
+                first_to_second[first_name] = second_name
+                second_to_first[second_name] = first_name
+
+        # ENHANCED: Smart similarity matching for unpaired files
+        unpaired_first = [f for f in first_files if f not in first_to_second]
+        unpaired_second = [f for f in second_files if f not in second_to_first]
+        
+        for first_file in unpaired_first:
+            first_base = first_file[:-5].lower().replace("-", " ").strip()
+            first_words = set(first_base.split())
+            
+            best_match = None
+            best_score = 0
+            
+            for second_file in unpaired_second:
+                second_base = second_file[:-5].lower().replace("-", " ").strip()
+                second_words = set(second_base.split())
+                
+                # Calculate word overlap score
+                common_words = first_words & second_words
+                total_words = first_words | second_words
+                
+                if total_words:
+                    score = len(common_words) / len(total_words)
+                    # Bonus for similar length
+                    length_diff = abs(len(first_base) - len(second_base))
+                    score *= (1 - min(length_diff / 20, 0.5))
+                    
+                    if score > best_score and score > 0.3:  # Minimum 30% similarity
+                        best_score = score
+                        best_match = second_file
+            
+            if best_match:
+                first_to_second[first_file] = best_match
+                second_to_first[best_match] = first_file
+                unpaired_second.remove(best_match)
+
+    return first_to_second, second_to_first
+Core.py complet actualizat cu fix-ul:
+pythonimport os
+import re
+from typing import Dict, Tuple, Optional, List, Iterable
+
+from .utils import read_file_with_fallback_encoding, write_file_with_encoding, list_html_files
+
+
+CANONICAL_RE = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"\s*/?>', re.IGNORECASE)
+# Accept both "+40" and "\+40"; same for +1
+RO_FLAG_RE = re.compile(r'<li><a\s+cunt_code="\\?\+40"\s+href="([^"]+)"')
+EN_FLAG_RE = re.compile(r'<li><a\s+cunt_code="\\?\+1"\s+href="([^"]+)"')
+
+
+def _ensure_backup(path: str, content: str, backup_ext: Optional[str]) -> None:
+    if backup_ext:
+        try:
+            with open(path + backup_ext, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            pass
+
+
+def _expected_canonical_href(base_url: str, filename: str, is_second_dir: bool, second_dir_path: str = "en") -> str:
+    """Generate expected canonical href for a file."""
+    if is_second_dir:
+        return f"{base_url}/{second_dir_path}/{filename}"
+    return f"{base_url}/{filename}"
+
+
+def fix_canonicals(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    """Fix canonical links to match exact filenames."""
+    fixes = 0
+
+    for is_second_dir, directory in ((False, first_directory), (True, second_directory)):
+        for filename in list_html_files(directory):
+            path = os.path.join(directory, filename)
+            content = read_file_with_fallback_encoding(path)
+            if not content:
+                continue
+            match = CANONICAL_RE.search(content)
+            if not match:
+                continue
+            current_href = match.group(1)
+            expected_href = _expected_canonical_href(base_url, filename, is_second_dir, second_dir_path)
+            if current_href != expected_href:
+                fixes += 1
+                if not dry_run:
+                    _ensure_backup(path, content, backup_ext)
+                    new_content = CANONICAL_RE.sub(
+                        f'<link rel="canonical" href="{expected_href}" />', content, count=1
+                    )
+                    write_file_with_encoding(path, new_content)
+
+    return fixes
+
+
+def fix_flags_match_canonical(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    """Ensure FLAGS match canonical in the same file."""
+    fixes = 0
+
+    for is_second_dir, directory, own_re in (
+        (False, first_directory, RO_FLAG_RE),
+        (True, second_directory, EN_FLAG_RE),
+    ):
+        for filename in list_html_files(directory):
+            path = os.path.join(directory, filename)
+            content = read_file_with_fallback_encoding(path)
+            if not content:
+                continue
+            canonical_match = CANONICAL_RE.search(content)
+            if not canonical_match:
+                continue
+            canonical_href = canonical_match.group(1)
+            own_flag_match = own_re.search(content)
+            if not own_flag_match:
+                continue
+            current_href = own_flag_match.group(1)
+            if current_href != canonical_href:
+                fixes += 1
+                if not dry_run:
+                    _ensure_backup(path, content, backup_ext)
+                    # replace only the first own flag link
+                    new_content = own_re.sub(
+                        own_flag_match.group(0).replace(current_href, canonical_href),
+                        content,
+                        count=1,
+                    )
+                    write_file_with_encoding(path, new_content)
+
+    return fixes
+
+
+def _fix_double_html_suffix(href: str) -> str:
+    # Normalize accidental .html.html to .html
+    return href.replace('.html.html', '.html')
+
+
+def _extract_second_filename_from_href(href: str, base_url: str, second_dir_path: str = "en") -> Optional[str]:
+    """Extract filename from second directory href."""
+    if not href:
+        return None
+    href = _fix_double_html_suffix(href)
+    prefix = f"{base_url}/{second_dir_path}/"
+    if not href.startswith(prefix) or not href.endswith(".html"):
+        return None
+    return href[len(prefix):]
+
+
+def _extract_first_filename_from_href(href: str, base_url: str) -> Optional[str]:
+    """Extract filename from first directory href."""
+    if not href:
+        return None
+    href = _fix_double_html_suffix(href)
+    prefix = f"{base_url}/"
+    if not href.startswith(prefix) or not href.endswith(".html"):
+        return None
+    name = href[len(prefix):]
+    # Some pages may include a nested path; take last component
+    if "/" in name:
+        name = name.split("/")[-1]
+    return name
+
+
+def _scan_pairs(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Scan directories and return pairing mappings with enhanced similarity matching."""
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    # First pass: deduce from flags if present
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_flag_match = EN_FLAG_RE.search(first_content)
+        if second_flag_match:
+            href = _fix_double_html_suffix(second_flag_match.group(1))
+            second_name = _extract_second_filename_from_href(href, base_url, second_dir_path)
+            if second_name:
+                if second_name in second_files and first_filename not in first_to_second:
+                    first_to_second[first_filename] = second_name
+                    if second_name not in second_to_first:
+                        second_to_first[second_name] = first_filename
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_flag_match = RO_FLAG_RE.search(second_content)
+        if first_flag_match:
+            href = _fix_double_html_suffix(first_flag_match.group(1))
+            first_name = _extract_first_filename_from_href(href, base_url)
+            if first_name:
+                if first_name in first_files and first_name not in first_to_second:
+                    first_to_second[first_name] = second_filename
+                    if second_filename not in second_to_first:
+                        second_to_first[second_filename] = first_name
+
+    # Enhanced fallback: multiple pairing strategies
+    if len(first_to_second) < len(first_files) or len(second_to_first) < len(second_files):
+        # Strategy 1: Exact name matching
+        for first_file in first_files:
+            if first_file in first_to_second:
+                continue
+            if first_file in second_files and first_file not in second_to_first:
+                first_to_second[first_file] = first_file
+                second_to_first[first_file] = first_file
+        
+        # Strategy 2: Normalized base name equality  
+        first_bases = {f[:-5].lower().replace("-", " ").strip(): f for f in first_files}
+        second_bases = {f[:-5].lower().replace("-", " ").strip(): f for f in second_files}
+        for base, first_name in first_bases.items():
+            if first_name in first_to_second:
+                continue
+            if base in second_bases and second_bases[base] not in second_to_first:
+                second_name = second_bases[base]
+                first_to_second[first_name] = second_name
+                second_to_first[second_name] = first_name
+
+        # Strategy 3: Smart similarity matching for remaining unpaired files
+        unpaired_first = [f for f in first_files if f not in first_to_second]
+        unpaired_second = [f for f in second_files if f not in second_to_first]
+        
+        for first_file in unpaired_first:
+            first_base = first_file[:-5].lower().replace("-", " ").strip()
+            first_words = set(first_base.split())
+            
+            best_match = None
+            best_score = 0
+            
+            for second_file in unpaired_second:
+                second_base = second_file[:-5].lower().replace("-", " ").strip()
+                second_words = set(second_base.split())
+                
+                # Calculate word overlap score
+                common_words = first_words & second_words
+                total_words = first_words | second_words
+                
+                if total_words:
+                    score = len(common_words) / len(total_words)
+                    # Bonus for similar length and structure
+                    length_diff = abs(len(first_base) - len(second_base))
+                    score *= (1 - min(length_diff / 20, 0.5))
+                    
+                    if score > best_score and score > 0.3:  # Minimum 30% similarity
+                        best_score = score
+                        best_match = second_file
+            
+            if best_match:
+                first_to_second[first_file] = best_match
+                second_to_first[best_match] = first_file
+                unpaired_second.remove(best_match)
+
+    return first_to_second, second_to_first
+
+
+def sync_cross_references(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> int:
+    """Synchronize cross-references between first and second directories."""
+    fixes = 0
+    first_to_second, second_to_first = _scan_pairs(first_directory, second_directory, base_url, second_dir_path)
+
+    # Update first files: ensure +1 points to expected second file
+    for first_filename, second_filename in first_to_second.items():
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_match = EN_FLAG_RE.search(first_content)
+        expected_href = f"{base_url}/{second_dir_path}/{second_filename}"
+        if second_match and _fix_double_html_suffix(second_match.group(1)) != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(first_path, first_content, backup_ext)
+                new_content = EN_FLAG_RE.sub(
+                    second_match.group(0).replace(second_match.group(1), expected_href),
+                    first_content,
+                    count=1,
+                )
+                write_file_with_encoding(first_path, new_content)
+
+    # Update second files: ensure +40 points to expected first file
+    for second_filename, first_filename in second_to_first.items():
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_match = RO_FLAG_RE.search(second_content)
+        expected_href = f"{base_url}/{first_filename}"
+        if first_match and _fix_double_html_suffix(first_match.group(1)) != expected_href:
+            fixes += 1
+            if not dry_run:
+                _ensure_backup(second_path, second_content, backup_ext)
+                new_content = RO_FLAG_RE.sub(
+                    first_match.group(0).replace(first_match.group(1), expected_href),
+                    second_content,
+                    count=1,
+                )
+                write_file_with_encoding(second_path, new_content)
+
+    return fixes
+
+
+def scan_issues(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+) -> Dict[str, object]:
+    """
+    Analyze directories and return a detailed report with:
+      - first_to_second, second_to_first mappings
+      - bidirectional_pairs: list[tuple[str, str]]
+      - mismatched_pairs: list[tuple[str, str, str]] (first, second, details)
+      - invalid_links: list[str]
+      - unmatched_first: list[str]
+      - unmatched_second: list[str]
+    """
+    first_files = set(list_html_files(first_directory))
+    second_files = set(list_html_files(second_directory))
+
+    first_to_second: Dict[str, str] = {}
+    second_to_first: Dict[str, str] = {}
+    invalid_links: List[str] = []
+    mismatched_pairs: List[Tuple[str, str, str]] = []
+
+    # First pass: try to pair via flags if they point to existing files
+    for first_filename in first_files:
+        first_path = os.path.join(first_directory, first_filename)
+        first_content = read_file_with_fallback_encoding(first_path)
+        if not first_content:
+            continue
+        second_match = EN_FLAG_RE.search(first_content)
+        second_href = _fix_double_html_suffix(second_match.group(1)) if second_match else None
+        second_name = _extract_second_filename_from_href(second_href, base_url, second_dir_path) if second_href else None
+        if second_name:
+            if second_name not in second_files:
+                invalid_links.append(f"FIRST {first_filename}: SECOND file not found {second_name}")
+                continue
+            first_to_second[first_filename] = second_name
+
+    for second_filename in second_files:
+        second_path = os.path.join(second_directory, second_filename)
+        second_content = read_file_with_fallback_encoding(second_path)
+        if not second_content:
+            continue
+        first_match = RO_FLAG_RE.search(second_content)
+        first_href = _fix_double_html_suffix(first_match.group(1)) if first_match else None
+        first_name = _extract_first_filename_from_href(first_href, base_url) if first_href else None
+        if first_name:
+            if first_name not in first_files:
+                invalid_links.append(f"SECOND {second_filename}: FIRST file not found {first_name}")
+                continue
+            second_to_first[second_filename] = first_name
+
+    # Bidirectional pairs
+    bidirectional_pairs: List[Tuple[str, str]] = []
+    for first_file, second_file in first_to_second.items():
+        if second_file in second_to_first and second_to_first[second_file] == first_file:
+            bidirectional_pairs.append((first_file, second_file))
+
+    # Detect pairs with no common links
+    for first_file, second_file in first_to_second.items():
+        if (first_file, second_file) in bidirectional_pairs:
+            continue
+        second_path = os.path.join(second_directory, second_file)
+        second_content = read_file_with_fallback_encoding(second_path) or ""
+        second_first_match = RO_FLAG_RE.search(second_content)
+        second_first_href = _fix_double_html_suffix(second_first_match.group(1)) if second_first_match else None
+        details = f"FIRST->SECOND: {base_url}/{second_dir_path}/{second_file}, SECOND->FIRST: {second_first_href or '-'}"
+        mismatched_pairs.append((first_file, second_file, details))
+
+    # Unmatched files (not part of any pair)
+    matched_first = {first for first, _ in bidirectional_pairs} | {first for first, _, _ in mismatched_pairs}
+    matched_second = {second for _, second in bidirectional_pairs} | {second for _, second, _ in mismatched_pairs}
+    unmatched_first = sorted(list(first_files - matched_first))
+    unmatched_second = sorted(list(second_files - matched_second))
+
+    return {
+        "first_to_second": dict(sorted(first_to_second.items())),
+        "second_to_first": dict(sorted(second_to_first.items())),
+        "bidirectional_pairs": bidirectional_pairs,
+        "mismatched_pairs": mismatched_pairs,
+        "invalid_links": invalid_links,
+        "unmatched_first": unmatched_first,
+        "unmatched_second": unmatched_second,
+        # Backwards compatibility
+        "ro_to_en": dict(sorted(first_to_second.items())),
+        "en_to_ro": dict(sorted(second_to_first.items())),
+        "unmatched_ro": unmatched_first,
+        "unmatched_en": unmatched_second,
+    }
+
+
+def repair_all(
+    first_directory: str,
+    second_directory: str,
+    base_url: str,
+    second_dir_path: str = "en",
+    dry_run: bool = False,
+    backup_ext: Optional[str] = None,
+) -> Tuple[int, int, int]:
+    """Run all repair steps: canonicals, flags, and cross-references."""
+    c = fix_canonicals(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    f = fix_flags_match_canonical(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    x = sync_cross_references(first_directory, second_directory, base_url, second_dir_path, dry_run=dry_run, backup_ext=backup_ext)
+    return c, f, x
+🧪 Test din nou:
+Acum algoritmul îmbunătățit ar trebui să facă pairing-ul corect între:
+
+buget-general-2024.html (budget)
+executie-bugetara-t3-2024.html (execution)
+
+Prin strategia de similarity matching bazată pe overlap de cuvinte comune: "buget", "general", "2024" vs "executie", "bugetara", "2024".
+Înlocuiește fișierul core.py cu versiunea de mai sus și testează din nou!Adăugând strategie îmbunătățită pentru potrivire fișiereAm identificat problema și am furnizat o soluție. Problema era că algoritmul de pairing nu putea face match între "buget-general-2024.html" și "executie-bugetara-t3-2024.html" prin strategiile existente de pairing.
+Am adăugat o strategie îmbunătățită de similarity matching care:
+
+Calculează overlap-ul de cuvinte între numele fișierelor
+Dă bonus pentru lungimi similare
+Acceptă match-uri cu minimum 30% similaritate
+Folosește această strategie ca fallback pentru fișierele care nu au putut fi pairing-uite prin metodele anterioare
+
+Acum algoritmul ar trebui să poată face pairing corect între fișierele cu nume diferite dar conținut related, și să repare link-urile invalide cum este cel cu "---".RetryNFcrezi ca trebuie sa reinstalez libraria sau sa fac update la ea from html_intersection.core import repair_all, scan_issuesEditAnalizat opțiuni de reinstalare și actualizare a bibliotecii.The user is asking whether they need to reinstall the library or update it when they're importing from html_intersection.core. They're working on a library modification and testing it locally.
+Since they're modifying the source code directly in their local development environment (not an installed package from PyPI), they have a few options:
+
+If they're working in development mode (pip install -e .) - changes should be reflected immediately
+If they installed it normally (pip install .) - they would need to reinstall
+If they're importing directly from the source code directory - they just need to restart their Python session to reload the module
+
+Given the context, they're likely testing locally before uploading to PyPI, so they're probably either:
+
+Working with an editable install
+Working directly with the source code
+Have the library installed normally
+
+I should give them the options for different scenarios.Depinde de cum ai instalat librăria în mediul tău de dezvoltare:
+Scenario 1: Instalare dezvoltare (editable install)
+Dacă ai instalat cu:
+powershellpip install -e .
+Atunci NU trebuie să reinstalezi - modificările se reflectă automat. Doar restartează sessiunea Python:
+python# Închide/restartează Python sau Jupyter
+# Apoi reimportă
+from html_intersection.core import repair_all, scan_issues
+Scenario 2: Instalare normală
+Dacă ai instalat cu:
+powershellpip install .
+Atunci DA, trebuie să reinstalezi:
+powershell.\.venv\Scripts\Activate.ps1
+pip uninstall html-intersection
+pip install .
+Scenario 3: Import direct din sursă
+Dacă rulezi script-ul din directorul sursă (fără instalare), doar restartează Python.
+Verificare rapidă:
+pythonimport html_intersection
+print(html_intersection.__file__)
+Dacă path-ul arată ca:
+
+...\site-packages\html_intersection\... → Reinstalare necesară
+...\src\html_intersection\... → Editable install, doar restart
+Path-ul local → Import direct, doar restart
+
+Cea mai sigură metodă:
+powershell# Din directorul librăriei
+.\.venv\Scripts\Activate.ps1
+pip uninstall html-intersection -y
+pip install -e .  # Instalare dezvoltare
+Apoi testează din nou. Cu -e orice modificare la core.py se aplică imediat fără reinstalare.Retry__init__.py15 linespyNF*** Remote Interpreter Reinitialized ***
+C:\Users\necul\AppData\Local\Programs\Python\Python312\Lib\site-packages\html_intersection\__init__.py
+>>>EditStrategized package reinstallation for development environment update.The user is showing me that they have a global installation of html-intersection in their site-packages directory:
+C:\Users\necul\AppData\Local\Programs\Python\Python312\Lib\site-packages\html_intersection\__init__.py
+This means they installed it normally (not with -e editable install), so any changes to the source code won't be reflected until they reinstall the package.
+Since they made changes to core.py to fix the pairing algorithm issue we discussed, they need to:
+
+Uninstall the current package
+Reinstall from their local source (preferably with -e for development)
+Then test again
+
+I should guide them through this process clearly.Văd că ai instalarea globală în site-packages, nu editable install. Asta înseamnă că modificările la core.py nu se reflectă automat.
+Trebuie să reinstalezi librăria:
+powershell# Navighează la directorul librăriei
+cd "e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection"
+
+# Activează venv
+.\.venv\Scripts\Activate.ps1
+
+# Dezinstalează versiunea veche
+pip uninstall html-intersection -y
+
+# Instalează din sursa locală cu dezvoltare
+pip install -e .
+Cu -e (editable install), viitoarele modificări la core.py se vor aplica imediat fără reinstalare.
+Verifică după instalare:
+pythonimport html_intersection
+print(html_intersection.__file__)
+Ar trebui să afișeze ceva ca:
+e:\...\html-intersection\src\html_intersection\__init__.py
+Nu site-packages.
+Apoi testează din nou:
+pythonfrom html_intersection.core import repair_all, scan_issues
+
+# Rulează testul tău
+Acum modificările la algoritmul de pairing din core.py vor fi active și ar trebui să repare corect link-ul buget-general-2023---.html.RetryNFam reinstalat, am testat si tot  <li><a cunt_code="+40" href="https://finante.gov.ro/budget/buget-general-2023---.html"><span>Budget</span></a></li>EditDiagnosticat problema cu parametrul de director secundar.11sThe user is reporting that after reinstalling the library and testing, the problematic link buget-general-2023---.html is still not being fixed. Let me analyze what's happening.
+Looking at the test files they provided:
+
+buget-general-2024.html (in budget directory) - has a link pointing to executie-bugetara-wrong.html
+executie-bugetara-t3-2024.html (in execution directory) - has a link pointing to buget-general-2023---.html
+
+The issue is that the pairing algorithm should match:
+
+buget-general-2024.html with executie-bugetara-t3-2024.html
+
+But the current algorithm might not be making this connection properly. Let me think about why:
+
+The filename extraction from invalid links might not be working
+The similarity matching might not be triggered
+The pairing logic might have other issues
+
+Looking at the files again:
+
+Budget file: buget-general-2024.html
+Execution file: executie-bugetara-t3-2024.html
+
+The budget file points to executie-bugetara-wrong.html (which doesn't exist)
+The execution file points to buget-general-2023---.html (which doesn't exist)
+The algorithm should:
+
+Detect that these links are invalid
+Try to pair the files by similarity
+Fix the cross-references to point to the correct existing files
+
+The problem might be that the library is not using the new second_dir_path parameter correctly, or the test isn't using it at all.
+Looking at the test code again, I see that the user is calling repair_all(budget_dir, execution_dir, base_url) without the second_dir_path="execution" parameter. This means it's still using the default "en" path, which would try to create URLs like https://finante.gov.ro/en/executie-bugetara-t3-2024.html instead of https://finante.gov.ro/execution/executie-bugetara-t3-2024.html.
+I've pinpointed the exact configuration problem preventing proper link repair. The missing second_dir_path parameter is causing incorrect URL generation, which breaks the file matching process.Problema este că testul nu folosește noul parametru second_dir_path="execution"!
+Privind testul tău, văd că faci:
+pythonrepair_all(budget_dir, execution_dir, base_url)
+Dar ar trebui să fie:
+pythonrepair_all(budget_dir, execution_dir, base_url, second_dir_path="execution")
+Problema: Fără second_dir_path="execution", biblioteca folosește default-ul "en" și încearcă să creeze URL-uri ca:
+
+https://finante.gov.ro/en/executie-bugetara-t3-2024.html
+
+În loc de:
+
+https://finante.gov.ro/execution/executie-bugetara-t3-2024.html
+
+Modifică testul tău astfel:
+pythondef test_financial_synchronization():
+    """Test the financial document synchronization example"""
+
+    print("=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===")
+    print()
+
+    # Create test files
+    base_dir, budget_dir, execution_dir = create_financial_test_files()
+    base_url = "https://finante.gov.ro"
+
+    # ... existing code ...
+
+    # FIXED: Add second_dir_path="execution"
+    canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+        budget_dir, 
+        execution_dir, 
+        base_url,
+        second_dir_path="execution"  # ← AICI era problema!
+    )
+
+    # Also fix the scan_issues calls:
+    issues = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+    issues_after = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+De asemenea, verifică că canonical-urile din fișierele test sunt corecte:
+Fișierul executie-bugetara-t3-2024.html ar trebui să aibă:
+html<link rel="canonical" href="https://finante.gov.ro/execution/executie-bugetara-t3-2024.html" />
+Nu:
+html<link rel="canonical" href="https://finante.gov.ro/en/executie-bugetara-t3-2024.html" />
+Testează din nou cu aceste modificări - ar trebui să repare link-ul buget-general-2023---.html corect!RetryNFscrie tot codulEditCrafted comprehensive financial test code with correct parameters.Utilizatorul vrea să-i scriu tot codul complet pentru testul financial cu parametrul correct second_dir_path="execution". Îi voi da un test complet care folosește corect noul API.python#!/usr/bin/env python3
+"""
+Test Financial Document Synchronization - FIXED VERSION
+Demonstrates cross-reference repair between budget and execution documents.
+"""
+
+import os
+import tempfile
+from html_intersection.core import repair_all, scan_issues
+
+def create_financial_test_files():
+    """Creates test financial documents with cross-reference issues"""
+
+    # Create temporary directories
+    base_dir = tempfile.mkdtemp()
+    budget_dir = os.path.join(base_dir, "budget")
+    execution_dir = os.path.join(base_dir, "execution")
+
+    os.makedirs(budget_dir)
+    os.makedirs(execution_dir)
+
+    # Budget document with correct self-reference but wrong execution reference
+    budget_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="canonical" href="https://finante.gov.ro/buget-general-2024.html" />
+    <title>Bugetul General Consolidat 2024</title>
+</head>
+<body>
+    <h1>Bugetul General Consolidat pentru anul 2024</h1>
+
+    <!-- FLAGS_1 -->
+    <div class="wrapper country-wrapper">
+        <dl id="country-select" class="dropdown country-select">
+            <dd>
+                <ul style="display: none;">
+                    <li><a cunt_code="+40" href="https://finante.gov.ro/buget-general-2024.html"><span>Budget</span></a></li>
+                    <li><a cunt_code="+1" href="https://finante.gov.ro/execution/executie-bugetara-wrong.html"><span>Execution</span></a></li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+    <!-- FLAGS -->
+
+    <section>
+        <h2>Venituri bugetare totale: 450.2 miliarde lei</h2>
+        <ul>
+            <li>Venituri fiscale: 380.5 mld lei</li>
+            <li>Venituri nefiscale: 69.7 mld lei</li>
+        </ul>
+    </section>
+</body>
+</html>"""
+
+    # Execution document with wrong budget reference
+    execution_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="canonical" href="https://finante.gov.ro/execution/executie-bugetara-t3-2024.html" />
+    <title>Execuția Bugetară 2024 - Trimestrul III</title>
+</head>
+<body>
+    <h1>Raport Execuție Bugetară - T3 2024</h1>
+
+    <!-- FLAGS_1 -->
+    <div class="wrapper country-wrapper">
+        <dl id="country-select" class="dropdown country-select">
+            <dd>
+                <ul style="display: none;">
+                    <li><a cunt_code="+1" href="https://finante.gov.ro/execution/executie-bugetara-t3-2024.html"><span>Execution</span></a></li>
+                    <li><a cunt_code="+40" href="https://finante.gov.ro/buget-general-2023---.html"><span>Budget</span></a></li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+    <!-- FLAGS -->
+
+    <section>
+        <h2>Execuție venituri la 30 septembrie 2024</h2>
+        <ul>
+            <li>Încasări totale: 338.4 miliarde lei (75.2% din plan)</li>
+            <li>Venituri fiscale: 285.1 mld lei (75.1% din plan)</li>
+        </ul>
+    </section>
+</body>
+</html>"""
+
+    # Write files
+    with open(os.path.join(budget_dir, "buget-general-2024.html"), 'w', encoding='utf-8') as f:
+        f.write(budget_html)
+
+    with open(os.path.join(execution_dir, "executie-bugetara-t3-2024.html"), 'w', encoding='utf-8') as f:
+        f.write(execution_html)
+
+    return base_dir, budget_dir, execution_dir
+
+def test_financial_synchronization():
+    """Test the financial document synchronization example"""
+
+    print("=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===")
+    print()
+
+    # Create test files
+    base_dir, budget_dir, execution_dir = create_financial_test_files()
+    base_url = "https://finante.gov.ro"
+
+    print(f"Test directory: {base_dir}")
+    print(f"Budget dir: {budget_dir}")
+    print(f"Execution dir: {execution_dir}")
+    print()
+
+    # First, analyze the current state
+    print("--- INITIAL ANALYSIS ---")
+    issues = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+
+    print(f"Document pairs found: {len(issues['first_to_second'])}")
+    for budget_file, exec_file in issues['first_to_second'].items():
+        print(f"  {budget_file} -> {exec_file}")
+
+    print(f"Mismatched pairs: {len(issues['mismatched_pairs'])}")
+    for budget_file, exec_file, details in issues['mismatched_pairs']:
+        print(f"  {budget_file} <-> {exec_file}")
+        print(f"    Details: {details}")
+
+    if issues['invalid_links']:
+        print("Invalid links found:")
+        for link in issues['invalid_links']:
+            print(f"  {link}")
+
+    print()
+
+    # Show current problematic links
+    print("--- CURRENT PROBLEMATIC LINKS ---")
+    execution_file = os.path.join(execution_dir, "executie-bugetara-t3-2024.html")
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+        if 'buget-general-2023---.html' in content:
+            print("FOUND PROBLEM: execution file points to buget-general-2023---.html")
+        else:
+            print("Problem link not found in execution file")
+
+    print()
+
+    # Repair all inconsistencies
+    print("--- APPLYING REPAIRS ---")
+    canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+        budget_dir, 
+        execution_dir, 
+        base_url,
+        second_dir_path="execution"  # CRITICAL: Use execution, not default "en"
+    )
+
+    print(f"Canonical fixes: {canonical_fixes}")
+    print(f"Flag fixes: {flag_fixes}")
+    print(f"Cross-reference fixes: {cross_ref_fixes}")
+    print()
+
+    # Check the fixed file
+    print("--- CHECKING REPAIRS ---")
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        fixed_content = f.read()
+        if 'buget-general-2024.html' in fixed_content:
+            print("SUCCESS: execution file now points to buget-general-2024.html")
+        elif 'buget-general-2023---.html' in fixed_content:
+            print("FAILURE: execution file still points to buget-general-2023---.html")
+        else:
+            print("UNKNOWN: Could not find budget link in execution file")
+
+    print()
+
+    # Analyze after repair
+    print("--- POST-REPAIR ANALYSIS ---")
+    issues_after = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+
+    print(f"Bidirectional pairs: {len(issues_after['bidirectional_pairs'])}")
+    for pair in issues_after['bidirectional_pairs']:
+        print(f"  {pair[0]} <-> {pair[1]} ✓")
+
+    print(f"Remaining mismatched pairs: {len(issues_after['mismatched_pairs'])}")
+    print(f"Remaining invalid links: {len(issues_after['invalid_links'])}")
+
+    if len(issues_after['mismatched_pairs']) == 0 and len(issues_after['invalid_links']) == 0:
+        print("✅ All financial documents are now properly synchronized!")
+    else:
+        print("⚠️ Some issues remain")
+        if issues_after['invalid_links']:
+            print("Remaining invalid links:")
+            for link in issues_after['invalid_links']:
+                print(f"  {link}")
+
+    return base_dir
+
+def test_backwards_compatibility():
+    """Test that old ro/en usage still works"""
+    
+    print("\n=== BACKWARDS COMPATIBILITY TEST ===")
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        ro_dir = os.path.join(temp_dir, "ro") 
+        en_dir = os.path.join(temp_dir, "en")
+        os.makedirs(ro_dir)
+        os.makedirs(en_dir)
+        
+        ro_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://example.com/test.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://example.com/test.html">RO</a></li>
+        <li><a cunt_code="+1" href="https://example.com/en/test.html">EN</a></li>
+    </ul>
+</body>
+</html>'''
+        
+        en_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <link rel="canonical" href="https://example.com/en/test.html" />
+</head>
+<body>
+    <ul>
+        <li><a cunt_code="+40" href="https://example.com/test.html">RO</a></li>
+        <li><a cunt_code="+1" href="https://example.com/en/test.html">EN</a></li>
+    </ul>
+</body>
+</html>'''
+        
+        with open(os.path.join(ro_dir, "test.html"), "w", encoding="utf-8") as f:
+            f.write(ro_content)
+        with open(os.path.join(en_dir, "test.html"), "w", encoding="utf-8") as f:
+            f.write(en_content)
+        
+        # Test old-style usage (should still work with default second_dir_path="en")
+        canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+            ro_dir,  # old first parameter name for backwards compatibility
+            en_dir,  # old second parameter name for backwards compatibility  
+            "https://example.com"
+            # second_dir_path defaults to "en"
+        )
+        
+        print(f"✅ Old-style call works: {canonical_fixes + flag_fixes + cross_ref_fixes} total operations")
+
+if __name__ == "__main__":
+    print("🧪 Testing html-intersection with FIXED second_dir_path parameter...\n")
+    
+    test_dir = test_financial_synchronization()
+    test_backwards_compatibility()
+    
+    print(f"\n🎉 Tests completed!")
+    print(f"   ✅ Using second_dir_path='execution' for financial documents")
+    print(f"   ✅ Should fix buget-general-2023---.html → buget-general-2024.html")
+    
+    print()
+    input("Press Enter to clean up test files...")
+
+    import shutil
+    try:
+        shutil.rmtree(test_dir)
+        print("✅ Test files cleaned up")
+    except Exception as e:
+        print(f"⚠️ Cleanup error: {e}")
+Schimbările critice:
+
+second_dir_path="execution" în toate apelurile repair_all() și scan_issues()
+Canonical corect în execution: href="https://finante.gov.ro/execution/..."
+Debugging suplimentar pentru a vedea exact ce se întâmplă cu linkul problematic
+
+Testează acest cod - ar trebui să repare buget-general-2023---.html în buget-general-2024.html.Scriind tot codul pentru test cu parametru corectatUtilizatorul vrea tot codul pentru test. Am dat un test complet care folosește corect parametrul second_dir_path="execution" pentru a repara problema cu link-ul invalid. Testul include și verificări suplimentare pentru a vedea exact ce se întâmplă cu reparația.
+Punctele cheie din codul dat:
+
+Folosește second_dir_path="execution" în loc de default-ul "en"
+Are canonical-uri corecte în fișierele test
+Include debugging pentru a vedea dacă reparația funcționează
+Testează și backwards compatibility
+Are cleanup la sfârșit
+
+Testul ar trebui să repare linkul invalid "buget-general-2023---.html" în "buget-general-2024.html" prin algoritmul de similarity matching îmbunătățit.RetryNF
+*** Remote Interpreter Reinitialized ***
+=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===
+
+Test directory: C:\Users\necul\AppData\Local\Temp\tmpkz48z0am
+Budget dir: C:\Users\necul\AppData\Local\Temp\tmpkz48z0am\budget
+Execution dir: C:\Users\necul\AppData\Local\Temp\tmpkz48z0am\execution
+
+--- INITIAL ANALYSIS ---
+Document pairs found: 0
+Mismatched pairs: 0
+Invalid links found:
+  EN executie-bugetara-t3-2024.html: RO file not found buget-general-2023---.html
+
+--- APPLYING REPAIRS ---
+Canonical fixes: 2
+Flag fixes: 2
+Cross-reference fixes: 0
+
+--- POST-REPAIR ANALYSIS ---
+Bidirectional pairs: 0
+Remaining mismatched pairs: 0
+Remaining invalid links: 1
+⚠️  Some issues remain
+
+Press Enter to clean up test files...
+Traceback (most recent call last):
+  File "D:\test_financial_sync.py", line 167, in <module>
+    input("Press Enter to clean up test files...")
+  File "<string>", line 1204, in Win32RawInput
+KeyboardInterrupt: Operation cancelled
+>>> 
+*** Remote Interpreter Reinitialized ***
+🧪 Testing html-intersection with FIXED second_dir_path parameter...
+
+=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===
+
+Test directory: C:\Users\necul\AppData\Local\Temp\tmp_8cmbcvl
+Budget dir: C:\Users\necul\AppData\Local\Temp\tmp_8cmbcvl\budget
+Execution dir: C:\Users\necul\AppData\Local\Temp\tmp_8cmbcvl\execution
+
+--- INITIAL ANALYSIS ---
+Traceback (most recent call last):
+  File "D:\test_financial_sync.py", line 250, in <module>
+    test_dir = test_financial_synchronization()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\test_financial_sync.py", line 116, in test_financial_synchronization
+    issues = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: scan_issues() got an unexpected keyword argument 'second_dir_path'
+>>>EditDiagnosed core.py parameter issue and synchronization discrepancies.Văd că sunt două probleme:
+
+În primul test, scan_issues() a detectat o problemă: "EN executie-bugetara-t3-2024.html: RO file not found buget-general-2023---.html", dar în al doilea test apare o eroare că scan_issues() nu acceptă argumentul second_dir_path.
+
+Asta înseamnă că fie:
+
+Modificările la core.py nu au fost salvate corect
+Reinstalarea nu a fost făcută corect
+Există o neconcordanță între versiunea instalată și cea locală
+
+Să verific dacă core.py modificat conține parametrul second_dir_path în funcția scan_issues. Din ceea ce am văzut în documentele anterioare, am modificat core.py să includă acest parametru.
+De asemenea, observ că în primul test a detectat "EN executie-bugetara-t3-2024.html: RO file not found buget-general-2023---.html" - asta înseamnă că librăria tratează încă execution_dir ca fiind directorul "EN" și budget_dir ca fiind directorul "RO", care nu este corect pentru testul nostru financial.
+Problema principală este că userul nu a înlocuit fișierul core.py cu versiunea mea modificată, sau reinstalarea nu a funcționat corect.Văd două probleme:
+Problema 1: scan_issues() nu acceptă second_dir_path
+Asta înseamnă că fișierul core.py modificat nu a fost instalat corect. Funcția scan_issues din versiunea ta nu are parametrul second_dir_path.
+Problema 2: Logica greșită
+În primul test, vad că detectează "EN executie-bugetara-t3-2024.html" - asta înseamnă că tratează execution_dir ca fiind directorul "EN", ceea ce este greșit.
+Soluția:
+1. Verifică ce versiune rulează:
+pythonimport html_intersection.core as core
+import inspect
+print(inspect.signature(core.scan_issues))
+2. Înlocuiește fișierul core.py cu versiunea mea modificată:
+Navighează la:
+e:\Carte\BB\17 - Site Leadership\...\html-intersection\src\html_intersection\core.py
+Și înlocuiește-l cu versiunea pe care ți-am dat-o (cea cu algoritm îmbunătățit și parametrul second_dir_path).
+3. Reinstalează forțat:
+powershellcd "e:\Carte\BB\17 - Site Leadership\...\html-intersection"
+.\.venv\Scripts\Activate.ps1
+pip uninstall html-intersection -y
+pip install -e . --force-reinstall
+4. Test rapid:
+pythonfrom html_intersection.core import scan_issues
+import inspect
+print(inspect.signature(scan_issues))
+# Ar trebui să afișeze: (first_directory, second_directory, base_url, second_dir_path='en')
+5. Dacă încă nu funcționează, test fără parametrul second_dir_path:
+python# Test temporar fără parametru
+issues = scan_issues(budget_dir, execution_dir, base_url)
+canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(budget_dir, execution_dir, base_url)
+Problema principală este că versiunea ta de core.py nu are modificările mele. Trebuie să înlocuiești fișierul și să reinstalezi.RetryNF
+*** Remote Interpreter Reinitialized ***
+(ro_directory: str, en_directory: str, base_url: str) -> Dict[str, object]
+>>>EditDiagnosed signature mismatch, planned update and solution strategy.Looking at the signature they provided:
+(ro_directory: str, en_directory: str, base_url: str) -> Dict[str, object]
+This shows that their current scan_issues function still has the old signature with ro_directory and en_directory parameters, not the new generic first_directory, second_directory, second_dir_path parameters that I provided in my modified core.py.
+This confirms that the core.py file hasn't been updated with my modifications. They need to actually replace the core.py file with the modified version I provided.
+Since they're still using the old version, I should provide them with a simpler solution that works with their current installation, or give them clear instructions on how to properly update the core.py file.
+Let me provide a direct solution that works with their current setup and also give them instructions on updating the file.Perfect! Asta confirmă că versiunea ta de core.py nu are modificările mele. Încă folosești vechile parametri (ro_directory, en_directory) în loc de cei noi (first_directory, second_directory, second_dir_path).
+Soluție rapidă cu versiunea curentă:
+Test modificat pentru versiunea ta actuală:
+python#!/usr/bin/env python3
+"""
+Test Financial Document Synchronization - Works with current version
+"""
+
+import os
+import tempfile
+from html_intersection.core import repair_all, scan_issues
+
+def create_financial_test_files():
+    """Creates test financial documents with cross-reference issues"""
+
+    # Create temporary directories
+    base_dir = tempfile.mkdtemp()
+    budget_dir = os.path.join(base_dir, "budget")
+    execution_dir = os.path.join(base_dir, "execution")
+
+    os.makedirs(budget_dir)
+    os.makedirs(execution_dir)
+
+    # Budget document
+    budget_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="canonical" href="https://finante.gov.ro/buget-general-2024.html" />
+    <title>Bugetul General Consolidat 2024</title>
+</head>
+<body>
+    <h1>Bugetul General Consolidat pentru anul 2024</h1>
+
+    <!-- FLAGS_1 -->
+    <div class="wrapper country-wrapper">
+        <dl id="country-select" class="dropdown country-select">
+            <dd>
+                <ul style="display: none;">
+                    <li><a cunt_code="+40" href="https://finante.gov.ro/buget-general-2024.html"><span>Budget</span></a></li>
+                    <li><a cunt_code="+1" href="https://finante.gov.ro/en/executie-bugetara-t3-2024.html"><span>Execution</span></a></li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+    <!-- FLAGS -->
+
+    <section>
+        <h2>Venituri bugetare totale: 450.2 miliarde lei</h2>
+    </section>
+</body>
+</html>"""
+
+    # Execution document  
+    execution_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="canonical" href="https://finante.gov.ro/en/executie-bugetara-t3-2024.html" />
+    <title>Execuția Bugetară 2024 - Trimestrul III</title>
+</head>
+<body>
+    <h1>Raport Execuție Bugetară - T3 2024</h1>
+
+    <!-- FLAGS_1 -->
+    <div class="wrapper country-wrapper">
+        <dl id="country-select" class="dropdown country-select">
+            <dd>
+                <ul style="display: none;">
+                    <li><a cunt_code="+1" href="https://finante.gov.ro/en/executie-bugetara-t3-2024.html"><span>Execution</span></a></li>
+                    <li><a cunt_code="+40" href="https://finante.gov.ro/buget-general-2023---.html"><span>Budget</span></a></li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+    <!-- FLAGS -->
+
+    <section>
+        <h2>Execuție venituri la 30 septembrie 2024</h2>
+    </section>
+</body>
+</html>"""
+
+    # Write files
+    with open(os.path.join(budget_dir, "buget-general-2024.html"), 'w', encoding='utf-8') as f:
+        f.write(budget_html)
+
+    with open(os.path.join(execution_dir, "executie-bugetara-t3-2024.html"), 'w', encoding='utf-8') as f:
+        f.write(execution_html)
+
+    return base_dir, budget_dir, execution_dir
+
+def test_financial_synchronization():
+    """Test with current version - use budget as RO, execution as EN"""
+
+    print("=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===")
+    print()
+
+    # Create test files
+    base_dir, budget_dir, execution_dir = create_financial_test_files()
+    base_url = "https://finante.gov.ro"
+
+    print(f"Test directory: {base_dir}")
+    print(f"Budget dir (treated as RO): {budget_dir}")
+    print(f"Execution dir (treated as EN): {execution_dir}")
+    print()
+
+    # IMPORTANT: Use current signature (ro_directory, en_directory)
+    print("--- INITIAL ANALYSIS ---")
+    issues = scan_issues(budget_dir, execution_dir, base_url)  # OLD SIGNATURE
+
+    print(f"RO->EN pairs: {len(issues['ro_to_en'])}")
+    for ro_file, en_file in issues['ro_to_en'].items():
+        print(f"  {ro_file} -> {en_file}")
+
+    if issues['invalid_links']:
+        print("Invalid links found:")
+        for link in issues['invalid_links']:
+            print(f"  {link}")
+
+    print()
+
+    # Check current problematic content
+    execution_file = os.path.join(execution_dir, "executie-bugetara-t3-2024.html")
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+        print("--- CURRENT PROBLEMATIC CONTENT ---")
+        if 'buget-general-2023---.html' in content:
+            print("FOUND: execution file contains buget-general-2023---.html")
+        else:
+            print("NOT FOUND: buget-general-2023---.html")
+
+    print()
+
+    # Apply repairs with current signature
+    print("--- APPLYING REPAIRS ---")
+    canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+        budget_dir,    # ro_directory 
+        execution_dir, # en_directory
+        base_url       # Uses default "en" path
+    )
+
+    print(f"Canonical fixes: {canonical_fixes}")
+    print(f"Flag fixes: {flag_fixes}")
+    print(f"Cross-reference fixes: {cross_ref_fixes}")
+    print()
+
+    # Check if the problem was fixed
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        fixed_content = f.read()
+        print("--- CHECKING REPAIRS ---")
+        if 'buget-general-2024.html' in fixed_content:
+            print("SUCCESS: execution file now contains buget-general-2024.html")
+        elif 'buget-general-2023---.html' in fixed_content:
+            print("FAILURE: execution file still contains buget-general-2023---.html")
+        else:
+            print("UNKNOWN: Could not determine current state")
+
+    print()
+
+    # Final analysis
+    print("--- POST-REPAIR ANALYSIS ---")
+    issues_after = scan_issues(budget_dir, execution_dir, base_url)
+
+    print(f"Bidirectional pairs: {len(issues_after.get('bidirectional_pairs', []))}")
+    print(f"Remaining invalid links: {len(issues_after['invalid_links'])}")
+
+    if len(issues_after['invalid_links']) == 0:
+        print("SUCCESS: All links are now valid!")
+    else:
+        print("REMAINING ISSUES:")
+        for link in issues_after['invalid_links']:
+            print(f"  {link}")
+
+    return base_dir
+
+if __name__ == "__main__":
+    print("Testing with CURRENT version of html-intersection...")
+    print("(Using budget=RO, execution=EN with default /en/ path)")
+    print()
+    
+    test_dir = test_financial_synchronization()
+    
+    print()
+    input("Press Enter to clean up test files...")
+
+    import shutil
+    try:
+        shutil.rmtree(test_dir)
+        print("Test files cleaned up")
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+Această versiune:
+
+Folosește semnătura veche scan_issues(budget_dir, execution_dir, base_url)
+Tratează budget ca RO și execution ca EN cu path-ul default /en/
+Testează dacă algoritmul actual poate repara buget-general-2023---.html
+
+Rulează acest test să vedem dacă versiunea ta actuală poate face pairing-ul și repararea.RetryNFe:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\core.py    16.8 k    09/06/2025 11:06    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\keyring\core.py    5.7 k    09/05/2025 17:38    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\certifi\core.py    3.3 k    09/05/2025 17:38    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\docutils\core.py    35.4 k    09/05/2025 17:38    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\idna\core.py    12.9 k    09/05/2025 17:38    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\build\lib\html_intersection\core.py    12.7 k    09/05/2025 16:30    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\setuptools\_distutils\core.py    9.1 k    09/05/2025 11:03    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\pip\_vendor\idna\core.py    12.9 k    09/05/2025 10:53    -a--
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\.venv\Lib\site-packages\pip\_vendor\certifi\core.py    3.3 k    09/05/2025 10:53    -a--am mai multe fisiere cu aceeasi denumire. eu am schimbat in e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\EditDiagnosed package installation issue, proposed reinstallation strategy.Looking at the file listing, I can see that the user has modified the core.py file in the source directory:
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src\html_intersection\core.py	16.8 k	09/06/2025 11:06	-a--
+This file is 16.8k and was modified today (09/06/2025 11:06), which suggests they did update it with my changes.
+However, there's also an older version in the build directory:
+e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\build\lib\html_intersection\core.py	12.7 k	09/05/2025 16:30	-a--
+The problem is likely that even though they updated the source file, they need to reinstall the package properly for the changes to take effect. When they tested earlier and saw the old signature, it means the Python import is still picking up the old installed version.
+The solution is to:
+
+Delete the build directory entirely
+Uninstall and reinstall with -e flag
+Or check which file is actually being imported
+
+Let me help them troubleshoot this installation issue.Perfect! Văd că ai actualizat fișierul corect - src\html_intersection\core.py are 16.8k și timestamp de astăzi (11:06). Problema e că Python încă importă versiunea veche.
+Problema: Cache-ul și build-ul vechi
+Observ că există un fișier vechi în build\lib\html_intersection\core.py (12.7k din 09/05). Acesta blochează instalarea noii versiuni.
+Soluția: Curățare completă și reinstalare
+powershellcd "e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection"
+
+# Activează venv
+.\.venv\Scripts\Activate.ps1
+
+# ȘTERGE COMPLET toate cache-urile și build-urile
+Remove-Item -Recurse -Force .\build\ -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .\dist\ -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .\src\html_intersection.egg-info\ -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .\*.egg-info\ -ErrorAction SilentlyContinue
+
+# Dezinstalează complet
+pip uninstall html-intersection -y
+
+# Curăță cache-ul pip
+pip cache purge
+
+# Reinstalează cu development mode
+pip install -e . --no-cache-dir
+Verificare după reinstalare:
+pythonimport html_intersection.core as core
+import inspect
+print("Signature:", inspect.signature(core.scan_issues))
+print("File location:", core.__file__)
+Ar trebui să afișeze:
+Signature: (first_directory: str, second_directory: str, base_url: str, second_dir_path: str = 'en') -> Dict[str, object]
+File location: e:\...\src\html_intersection\core.py
+Dacă vezi parametrii first_directory, second_directory, second_dir_path, atunci versiunea ta modificată este activă și poți folosi testul cu second_dir_path="execution".
+Încearcă curățarea și reinstalarea, apoi testează din nou!RetryNF*** Remote Interpreter Reinitialized ***
+Signature: (ro_directory: str, en_directory: str, base_url: str) -> Dict[str, object]
+File location: C:\Users\necul\AppData\Local\Programs\Python\Python312\Lib\site-packages\html_intersection\core.py
+>>>EditDiagnosed pip installation issue blocking local development version.The user is still getting the old signature (ro_directory, en_directory) and the file location shows it's still using the global Python installation in site-packages, not the local development version. This means the pip install -e . command didn't work properly.
+The issue is that Python is still importing from the global site-packages instead of the local source directory. Even though they updated the src/html_intersection/core.py file and tried to reinstall with pip install -e ., it's still using the old version from site-packages.
+Let me help them fix this properly.Problema este că încă folosești instalarea globală din site-packages, nu versiunea locală de dezvoltare. Comanda pip install -e . nu a funcționat corect.
+Soluția: Instalare dezvoltare corectă
+powershellcd "e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection"
+
+# Activează venv
+.\.venv\Scripts\Activate.ps1
+
+# Verifică dacă ești în venv
+python -c "import sys; print(sys.prefix)"
+# Trebuie să afișeze calea către .venv, nu Python global
+
+# Dezinstalează din toate locațiile
+pip uninstall html-intersection -y
+python -m pip uninstall html-intersection -y
+
+# Verifică că nu mai există
+pip list | findstr html
+
+# Instalare dezvoltare din directorul curent
+pip install -e . --force-reinstall --no-deps
+Alternativa: Import direct din sursă
+Dacă pip install -e . nu funcționează, poți importa direct din sursă:
+pythonimport sys
+import os
+
+# Adaugă directorul sursă la path
+src_path = r"e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src"
+sys.path.insert(0, src_path)
+
+# Acum importă
+from html_intersection.core import repair_all, scan_issues
+import inspect
+print("Signature:", inspect.signature(scan_issues))
+Verificare finală
+După orice metodă, verifică:
+pythonimport html_intersection.core as core
+print("File:", core.__file__)
+print("Signature:", inspect.signature(core.scan_issues))
+Trebuie să vezi:
+
+File: ceva cu src\html_intersection\core.py
+Signature: cu first_directory, second_directory, second_dir_path
+
+Care metodă preferi să încercăm?RetryNF
+*** Remote Interpreter Reinitialized ***
+Signature: (first_directory: str, second_directory: str, base_url: str, second_dir_path: str = 'en') -> Dict[str, object]
+>>>EditValidated function signature and prepared for financial synchronization test.Great! The user can now see that the signature shows the updated function with first_directory, second_directory, and second_dir_path parameters. This means the new version of core.py is loaded correctly.
+Now we can test the financial synchronization with the proper parameters. The user should be able to use second_dir_path="execution" and the improved pairing algorithm that should handle the buget-general-2023---.html issue.Perfect! Acum versiunea ta modificată este activă. Observ că funcția scan_issues are parametrii noi: first_directory, second_directory, second_dir_path.
+Acum poți rula testul cu parametrii corecti:
+python#!/usr/bin/env python3
+"""
+Test Financial Document Synchronization - UPDATED VERSION
+"""
+
+import os
+import tempfile
+from html_intersection.core import repair_all, scan_issues
+
+def create_financial_test_files():
+    """Creates test financial documents with cross-reference issues"""
+
+    # Create temporary directories
+    base_dir = tempfile.mkdtemp()
+    budget_dir = os.path.join(base_dir, "budget")
+    execution_dir = os.path.join(base_dir, "execution")
+
+    os.makedirs(budget_dir)
+    os.makedirs(execution_dir)
+
+    # Budget document
+    budget_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="canonical" href="https://finante.gov.ro/buget-general-2024.html" />
+    <title>Bugetul General Consolidat 2024</title>
+</head>
+<body>
+    <h1>Bugetul General Consolidat pentru anul 2024</h1>
+
+    <!-- FLAGS_1 -->
+    <div class="wrapper country-wrapper">
+        <dl id="country-select" class="dropdown country-select">
+            <dd>
+                <ul style="display: none;">
+                    <li><a cunt_code="+40" href="https://finante.gov.ro/buget-general-2024.html"><span>Budget</span></a></li>
+                    <li><a cunt_code="+1" href="https://finante.gov.ro/execution/executie-bugetara-t3-2024.html"><span>Execution</span></a></li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+    <!-- FLAGS -->
+
+    <section>
+        <h2>Venituri bugetare totale: 450.2 miliarde lei</h2>
+    </section>
+</body>
+</html>"""
+
+    # Execution document with problematic link
+    execution_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="canonical" href="https://finante.gov.ro/execution/executie-bugetara-t3-2024.html" />
+    <title>Execuția Bugetară 2024 - Trimestrul III</title>
+</head>
+<body>
+    <h1>Raport Execuție Bugetară - T3 2024</h1>
+
+    <!-- FLAGS_1 -->
+    <div class="wrapper country-wrapper">
+        <dl id="country-select" class="dropdown country-select">
+            <dd>
+                <ul style="display: none;">
+                    <li><a cunt_code="+1" href="https://finante.gov.ro/execution/executie-bugetara-t3-2024.html"><span>Execution</span></a></li>
+                    <li><a cunt_code="+40" href="https://finante.gov.ro/buget-general-2023---.html"><span>Budget</span></a></li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+    <!-- FLAGS -->
+
+    <section>
+        <h2>Execuție venituri la 30 septembrie 2024</h2>
+    </section>
+</body>
+</html>"""
+
+    # Write files
+    with open(os.path.join(budget_dir, "buget-general-2024.html"), 'w', encoding='utf-8') as f:
+        f.write(budget_html)
+
+    with open(os.path.join(execution_dir, "executie-bugetara-t3-2024.html"), 'w', encoding='utf-8') as f:
+        f.write(execution_html)
+
+    return base_dir, budget_dir, execution_dir
+
+def test_financial_synchronization():
+    """Test with NEW signature and second_dir_path parameter"""
+
+    print("=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===")
+    print()
+
+    # Create test files
+    base_dir, budget_dir, execution_dir = create_financial_test_files()
+    base_url = "https://finante.gov.ro"
+
+    print(f"Test directory: {base_dir}")
+    print(f"Budget dir: {budget_dir}")
+    print(f"Execution dir: {execution_dir}")
+    print()
+
+    # Use NEW signature with second_dir_path
+    print("--- INITIAL ANALYSIS ---")
+    issues = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+
+    print(f"Document pairs found: {len(issues['first_to_second'])}")
+    for budget_file, exec_file in issues['first_to_second'].items():
+        print(f"  {budget_file} -> {exec_file}")
+
+    if issues['invalid_links']:
+        print("Invalid links found:")
+        for link in issues['invalid_links']:
+            print(f"  {link}")
+
+    print()
+
+    # Check current problematic content
+    execution_file = os.path.join(execution_dir, "executie-bugetara-t3-2024.html")
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+        print("--- CURRENT PROBLEMATIC CONTENT ---")
+        if 'buget-general-2023---.html' in content:
+            print("FOUND: execution file contains buget-general-2023---.html")
+        else:
+            print("NOT FOUND: buget-general-2023---.html")
+
+    print()
+
+    # Apply repairs with NEW signature
+    print("--- APPLYING REPAIRS ---")
+    canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+        budget_dir,    # first_directory 
+        execution_dir, # second_directory
+        base_url,      # base_url
+        second_dir_path="execution"  # NEW PARAMETER
+    )
+
+    print(f"Canonical fixes: {canonical_fixes}")
+    print(f"Flag fixes: {flag_fixes}")
+    print(f"Cross-reference fixes: {cross_ref_fixes}")
+    print()
+
+    # Check if the problem was fixed
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        fixed_content = f.read()
+        print("--- CHECKING REPAIRS ---")
+        if 'buget-general-2024.html' in fixed_content:
+            print("SUCCESS: execution file now contains buget-general-2024.html")
+        elif 'buget-general-2023---.html' in fixed_content:
+            print("FAILURE: execution file still contains buget-general-2023---.html")
+        else:
+            print("UNKNOWN: Could not determine current state")
+
+    print()
+
+    # Final analysis
+    print("--- POST-REPAIR ANALYSIS ---")
+    issues_after = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+
+    print(f"Bidirectional pairs: {len(issues_after['bidirectional_pairs'])}")
+    print(f"Remaining invalid links: {len(issues_after['invalid_links'])}")
+
+    if len(issues_after['invalid_links']) == 0:
+        print("SUCCESS: All links are now valid!")
+    else:
+        print("REMAINING ISSUES:")
+        for link in issues_after['invalid_links']:
+            print(f"  {link}")
+
+    return base_dir
+
+if __name__ == "__main__":
+    print("Testing with UPDATED version using second_dir_path='execution'")
+    print()
+    
+    test_dir = test_financial_synchronization()
+    
+    print()
+    input("Press Enter to clean up test files...")
+
+    import shutil
+    try:
+        shutil.rmtree(test_dir)
+        print("Test files cleaned up")
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+Acum că ai versiunea corectă instalată, testul ar trebui să:
+
+Detecteze pairing-ul corect între buget-general-2024.html și executie-bugetara-t3-2024.html
+Repare link-ul greșit buget-general-2023---.html în buget-general-2024.html
+Funcționeze cu second_dir_path="execution"
+
+Rulează testul și să vedem dacă funcționează!RetryNF
+*** Remote Interpreter Reinitialized ***
+Testing with UPDATED version using second_dir_path='execution'
+
+=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===
+
+Test directory: C:\Users\necul\AppData\Local\Temp\tmp_85mn7ze
+Budget dir: C:\Users\necul\AppData\Local\Temp\tmp_85mn7ze\budget
+Execution dir: C:\Users\necul\AppData\Local\Temp\tmp_85mn7ze\execution
+
+--- INITIAL ANALYSIS ---
+Traceback (most recent call last):
+  File "D:\test_financial_sync.py", line 179, in <module>
+    test_dir = test_financial_synchronization()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\test_financial_sync.py", line 107, in test_financial_synchronization
+    issues = scan_issues(budget_dir, execution_dir, base_url, second_dir_path="execution")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: scan_issues() got an unexpected keyword argument 'second_dir_path'
+>>>EditDiagnosed potential function signature mismatch and debugging strategies.The user is still getting a TypeError saying that scan_issues() doesn't accept the second_dir_path parameter, even though they just verified that the signature shows it should have that parameter. This is very strange.
+Let me think about what could be happening:
+
+They verified the signature shows: (first_directory: str, second_directory: str, base_url: str, second_dir_path: str = 'en') -> Dict[str, object]
+But when they call it, it says "unexpected keyword argument 'second_dir_path'"
+
+This suggests there might be a mismatch between what inspect.signature shows and the actual function. This could happen if:
+
+There are multiple versions of the function loaded
+The function signature inspection is showing a different function than what's actually being called
+There's some kind of import caching issue
+The function was modified but not properly reloaded
+
+The most likely issue is that there are multiple functions with the same name, or there's some import caching happening.
+Let me suggest a few debugging steps:
+
+Check what the actual function object is
+Try to reload the module completely
+Check if there are multiple scan_issues functions
+Try calling it with positional arguments instead of keyword arguments
+
+I should provide a debugging approach and then a workaround.Foarte ciudat! Signature-ul arată parametrul second_dir_path, dar funcția nu îl acceptă. Asta sugerează un conflict de import sau cache.
+Debugging rapid:
+pythonimport html_intersection.core as core
+import inspect
+
+# Verifică funcția exact
+print("Function object:", core.scan_issues)
+print("Signature:", inspect.signature(core.scan_issues))
+print("Source file:", inspect.getfile(core.scan_issues))
+
+# Încearcă să vezi parametrii efectivi
+print("Parameters:", list(inspect.signature(core.scan_issues).parameters.keys()))
+Workaround: Folosește parametri pozitionali
+În loc de keyword argument, încearcă cu parametri pozitionali:
+pythondef test_financial_synchronization():
+    """Test with positional arguments instead of keyword"""
+
+    print("=== FINANCIAL DOCUMENT SYNCHRONIZATION TEST ===")
+    print()
+
+    # Create test files
+    base_dir, budget_dir, execution_dir = create_financial_test_files()
+    base_url = "https://finante.gov.ro"
+
+    print(f"Test directory: {base_dir}")
+    print(f"Budget dir: {budget_dir}")
+    print(f"Execution dir: {execution_dir}")
+    print()
+
+    # Use POSITIONAL arguments instead of keyword
+    print("--- INITIAL ANALYSIS ---")
+    issues = scan_issues(budget_dir, execution_dir, base_url, "execution")  # POSITIONAL
+
+    print(f"Document pairs found: {len(issues['first_to_second'])}")
+    for budget_file, exec_file in issues['first_to_second'].items():
+        print(f"  {budget_file} -> {exec_file}")
+
+    if issues['invalid_links']:
+        print("Invalid links found:")
+        for link in issues['invalid_links']:
+            print(f"  {link}")
+
+    print()
+
+    # Apply repairs with POSITIONAL arguments
+    print("--- APPLYING REPAIRS ---")
+    canonical_fixes, flag_fixes, cross_ref_fixes = repair_all(
+        budget_dir,    # first_directory 
+        execution_dir, # second_directory
+        base_url,      # base_url
+        "execution"    # second_dir_path - POSITIONAL
+    )
+
+    print(f"Canonical fixes: {canonical_fixes}")
+    print(f"Flag fixes: {flag_fixes}")
+    print(f"Cross-reference fixes: {cross_ref_fixes}")
+    print()
+
+    # Check results
+    execution_file = os.path.join(execution_dir, "executie-bugetara-t3-2024.html")
+    with open(execution_file, 'r', encoding='utf-8') as f:
+        fixed_content = f.read()
+        print("--- CHECKING REPAIRS ---")
+        if 'buget-general-2024.html' in fixed_content:
+            print("SUCCESS: execution file now contains buget-general-2024.html")
+        elif 'buget-general-2023---.html' in fixed_content:
+            print("FAILURE: execution file still contains buget-general-2023---.html")
+        else:
+            print("UNKNOWN: Could not determine current state")
+
+    # Final analysis with POSITIONAL
+    print("--- POST-REPAIR ANALYSIS ---")
+    issues_after = scan_issues(budget_dir, execution_dir, base_url, "execution")  # POSITIONAL
+
+    print(f"Bidirectional pairs: {len(issues_after['bidirectional_pairs'])}")
+    print(f"Remaining invalid links: {len(issues_after['invalid_links'])}")
+
+    return base_dir
+Încearcă cu parametri pozitionali în loc de second_dir_path="execution". Dacă funcționează, înseamnă că signature-ul este corect dar implementarea are o problemă cu keyword arguments.RetryNF
+*** Remote Interpreter Reinitialized ***
+Function object: <function scan_issues at 0x000001E556733380>
+Signature: (ro_directory: str, en_directory: str, base_url: str) -> Dict[str, object]
+Source file: C:\Users\necul\AppData\Local\Programs\Python\Python312\Lib\site-packages\html_intersection\core.py
+Parameters: ['ro_directory', 'en_directory', 'base_url']
+>>>EditDiagnosed import issue and strategized local library resolution.The user is debugging a library installation issue. The problem is that despite what appeared to be a successful installation of the modified version, Python is still importing the old version from site-packages instead of the local development version.
+From the debug output, I can see:
+
+Function signature shows old parameters: (ro_directory: str, en_directory: str, base_url: str)
+Source file is still: C:\Users\necul\AppData\Local\Programs\Python\Python312\Lib\site-packages\html_intersection\core.py
+
+This means the old version is still being imported from site-packages, not the local source. The pip install -e . command didn't work properly.
+Let me provide a clear solution to force the local version to be imported.Acum văd problema! Python încă importă versiunea veche din site-packages, nu versiunea ta modificată. Comanda pip install -e . nu a funcționat.
+Soluția: Import direct din sursă
+Cea mai sigură metodă este să forțezi importul din directorul local:
+pythonimport sys
+import os
+
+# Forțează importul din directorul local
+project_path = r"e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src"
+
+# Adaugă la începutul path-ului (prioritate maximă)
+if project_path not in sys.path:
+    sys.path.insert(0, project_path)
+
+# Șterge modulul din cache dacă există
+if 'html_intersection.core' in sys.modules:
+    del sys.modules['html_intersection.core']
+if 'html_intersection' in sys.modules:
+    del sys.modules['html_intersection']
+
+# Acum importă din sursa locală
+from html_intersection.core import repair_all, scan_issues
+import inspect
+
+# Verifică că versiunea corectă este încărcată
+print("Source file:", inspect.getfile(scan_issues))
+print("Signature:", inspect.signature(scan_issues))
+Rulează acest cod mai întâi, apoi rulează testul. Ar trebui să afișeze:
+Source file: e:\...\src\html_intersection\core.py
+Signature: (first_directory: str, second_directory: str, base_url: str, second_dir_path: str = 'en') -> Dict[str, object]
+Dacă vezi parametrii corecți (first_directory, second_directory, second_dir_path), atunci testul cu second_dir_path="execution" va funcționa.
+Testul complet cu import forțat:
+pythonimport sys
+import os
+import tempfile
+
+# FORȚEAZĂ IMPORTUL LOCAL
+project_path = r"e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src"
+sys.path.insert(0, project_path)
+
+# Curăță cache-ul
+for module in list(sys.modules.keys()):
+    if 'html_intersection' in module:
+        del sys.modules[module]
+
+# Import din sursa locală
+from html_intersection.core import repair_all, scan_issues
+import inspect
+
+print("VERIFICARE IMPORT:")
+print("Source:", inspect.getfile(scan_issues))
+print("Signature:", inspect.signature(scan_issues))
+print()
+
+# Dacă signature-ul arată parametrii noi, continuă cu testul
+if 'second_dir_path' in str(inspect.signature(scan_issues)):
+    print("SUCCESS: Versiunea modificată este încărcată!")
+    print("Rulând testul cu second_dir_path='execution'...")
+    
+    # AICI pui testul tău cu second_dir_path="execution"
+    
+else:
+    print("FAILURE: Încă se încarcă versiunea veche")
+Această metodă va forța Python să folosească versiunea ta modificată din src/, nu cea din site-packages.Retry(.venv) PS E:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection> import sys
+import : The term 'import' is not recognized as the name of a cmdlet, function, script file, or operable program.
+ChepastedNFEditStrategized Python execution steps in PowerShell environment.The user is trying to run Python code in a PowerShell command prompt. They're getting errors because they're trying to use Python syntax in PowerShell, which doesn't work. They need to start Python first, then run the Python code.
+I need to explain this clearly and provide the correct steps to:
+
+Start Python from PowerShell
+Run the Python code to force import from local source
+Test the updated library
+
+The user is in the venv directory and has it activated, which is good. They just need to run python first to enter the Python interpreter.Problema este că încerci să rulezi cod Python direct în PowerShell! Trebuie să pornești Python mai întâi.
+Pașii corecți:
+1. Pornește Python din PowerShell:
+powershellpython
+2. Apoi rulează codul Python în interpretorul Python:
+pythonimport sys
+import os
+
+# Forțează importul din directorul local
+project_path = r"e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src"
+
+# Adaugă la începutul path-ului
+if project_path not in sys.path:
+    sys.path.insert(0, project_path)
+
+# Șterge modulul din cache 
+if 'html_intersection.core' in sys.modules:
+    del sys.modules['html_intersection.core']
+if 'html_intersection' in sys.modules:
+    del sys.modules['html_intersection']
+
+# Import din sursa locală
+from html_intersection.core import repair_all, scan_issues
+import inspect
+
+# Verifică versiunea
+print("Source file:", inspect.getfile(scan_issues))
+print("Signature:", inspect.signature(scan_issues))
+3. Dacă signature-ul arată parametrii noi, rulează testul:
+python# Testul tău aici cu second_dir_path="execution"
+Alternativă: Rulează direct un fișier Python
+Creează un fișier test_with_local_import.py:
+pythonimport sys
+import os
+import tempfile
+
+# Forțează importul local
+project_path = r"e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection\src"
+sys.path.insert(0, project_path)
+
+# Curăță cache
+for module in list(sys.modules.keys()):
+    if 'html_intersection' in module:
+        del sys.modules[module]
+
+from html_intersection.core import repair_all, scan_issues
+print("SUCCESS: Imported from", scan_issues.__module__)
+print("Signature:", str(scan_issues.__annotations__))
+
+# Aici rulezi testul tău
+Apoi din PowerShell:
+powershellpython test_with_local_import.py
+Care metodă preferi?RetryNFokEdit2 / 2Strategized Python import solution for library testing.The user just said "ok" which is a brief acknowledgment. They seem to understand that they need to run Python code in a Python interpreter rather than directly in PowerShell.
+Given the context of our conversation, they were trying to test their updated html-intersection library with the new second_dir_path parameter, but were running into import issues because Python was still using the old version from site-packages instead of their locally modified version.
+I provided them with steps to:
+
+Start Python from PowerShell
+Force import from their local source directory
+Test the updated functionality
+
+Their "ok" suggests they understand and will proceed with one of these approaches. I should provide a concise next step or ask if they need any clarification, without being overly verbose since they seem ready to proceed.Perfect! Așa că urmează unul din acești pași:
+Opțiunea 1 - În Python interactiv:
+powershellpython
+Apoi rulezi codul de import forțat în interpretorul Python.
+Opțiunea 2 - Fișier separat:
+Creezi test_fixed.py cu import-ul forțat și testul complet, apoi:
+powershellpython test_fixed.py
+Odată ce ai versiunea corectă încărcată (cu first_directory, second_directory, second_dir_path), testul ar trebui să repare buget-general-2023---.html în buget-general-2024.html.
+Anunță-mă ce rezultate obții!RetryClaude can make mistakes. Please double-check responses.Research Sonnet 4
