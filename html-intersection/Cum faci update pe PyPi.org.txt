@@ -1,0 +1,87 @@
+Pentru a actualiza pachetul pe PyPI cu noul README.md, trebuie să faci următorii pași:
+
+## 1. Actualizează versiunea în pyproject.toml
+
+deci data viitoare cand vreau sa fac upload scriu version = "0.2.2"
+daca vrei sa stergi versiunea  https://pypi.org/manage/project/html-intersection/releases/ - Options - Delete (daca alegi YANK, ascunde versiunea, dar nu o sterge)
+
+Alternativa: "Yank"
+
+Opțiunea "Yank" din meniu marchează versiunea ca retrasă
+Nu o șterge, dar o ascunde din instalările automate
+Utilizatorii pot încă instala explicit cu pip install html-intersection==0.2.0
+
+
+
+```toml
+[project]
+name = "html-intersection"
+version = "0.2.1"  # Incrementează versiunea  
+# restul configurației...
+```
+După upload, noua versiunea va fi disponibilă la:
+
+`https://pypi.org/project/html-intersection/0.2.2/`
+
+Și utilizatorii vor putea instala noua versiune cu:
+
+```bash
+pip install html-intersection==0.2.2
+```
+
+Sau pentru a actualiza automat la cea mai nouă versiune:
+
+```bash
+pip install --upgrade html-intersection
+```
+
+PyPI actualizează automat pagina principală a proiectului (`https://pypi.org/project/html-intersection/`) pentru a arăta ultima versiune ca fiind cea implicită.
+
+-------------
+
+## 2. Șterge directoarele vechi de build
+
+```powershell
+cd "e:\Carte\BB\17 - Site Leadership\alte\Ionel Balauta\Aryeht\Task 1 - Traduce tot site-ul\Doar Google Web\Andreea\Meditatii\2023\Intersection\html-intersection"
+
+# Șterge directoarele vechi
+Remove-Item -Recurse -Force .\dist\
+Remove-Item -Recurse -Force .\build\
+Remove-Item -Recurse -Force .\src\html_intersection.egg-info\
+```
+
+## 3. Activează virtual environment
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+## 4. Rebuild pachetul
+
+```powershell
+python -m build
+```
+
+## 5. Upload noua versiune la PyPI
+
+```powershell
+$env:TWINE_USERNAME="__token__"
+$env:TWINE_PASSWORD="pypi-TOKENUL_TAU_AICI"
+python -m twine upload dist\*
+```
+
+## Note importante:
+
+- **Versiunea trebuie să fie mai mare** decât 0.2.0 (ex: 0.2.1, 0.3.0)
+- **Nu poți rescrie aceeași versiune** pe PyPI
+- **README.md-ul nou** va apărea automat pe pagina PyPI după upload
+- **Verifică că README.md este în directorul root** al proiectului (nu în subdirectoare)
+
+Dacă vrei să testezi mai întâi:
+
+```powershell
+# Upload la TestPyPI mai întâi
+python -m twine upload --repository testpypi dist\*
+```
+
+După upload, noua versiune va fi disponibilă la `https://pypi.org/project/html-intersection/0.2.1/` cu README-ul actualizat.
